@@ -1,0 +1,37 @@
+﻿{
+  "web_sources": [
+    {
+      "id": "pokemon_db",
+      "name": "PokemonDB",
+      "areas": [
+        {
+          "id": "sprites_root",
+          "label": "Sprites (All Pokemon)",
+          "url": "https://pokemondb.net/sprites"
+        }
+      ]
+    },
+    {
+      "id": "project_pokemon",
+      "name": "Project Pokemon",
+      "areas": [
+        {
+          "id": "spriteindex_root",
+          "label": "Sprite Index (root)",
+          "url": "https://projectpokemon.org/home/docs/spriteindex_148/"
+        }
+      ]
+    },
+    {
+      "id": "pokeapi",
+      "name": "PokeAPI (metadata)",
+      "areas": [
+        {
+          "id": "docs",
+          "label": "Docs (metadata + sprite URLs)",
+          "url": "https://pokeapi.co/docs/v2"
+        }
+      ]
+    }
+  ]
+}

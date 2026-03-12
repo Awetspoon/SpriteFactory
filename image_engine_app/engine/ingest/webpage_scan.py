@@ -7,6 +7,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import re
 from typing import Callable
+from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
@@ -24,6 +25,10 @@ SUPPORTED_IMAGE_EXTENSIONS = {
 }
 
 USER_AGENT = "ImageEngine/0.1 (Prompt5 Webpage Scan)"
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 class WebpageScanCancelledError(Exception):
@@ -65,6 +70,68 @@ def _open_with_socket_fallback(
 
         direct_opener = build_opener(ProxyHandler({}))
         return direct_opener.open(request, timeout=timeout)
+
+
+def _origin_url(page_url: str) -> str:
+    parsed = urlparse(page_url)
+    if not parsed.scheme or not parsed.netloc:
+        return page_url
+    return f"{parsed.scheme}://{parsed.netloc}/"
+
+
+def _html_request_header_profiles(page_url: str) -> list[dict[str, str]]:
+    origin = _origin_url(page_url)
+    return [
+        {
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Referer": origin,
+        },
+        {
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "identity",
+            "Referer": origin,
+        },
+    ]
+
+
+def _is_retryable_fetch_error(exc: Exception) -> bool:
+    if isinstance(exc, HTTPError):
+        code = int(getattr(exc, "code", 0) or 0)
+        return code in {401, 403, 406, 408, 429} or code >= 500
+    if isinstance(exc, URLError):
+        return True
+    return _is_socket_access_denied(exc)
+
+
+def _charset_from_content_type(content_type: str | None) -> str | None:
+    if not content_type:
+        return None
+    match = re.search(r"charset\s*=\s*([^\s;]+)", content_type, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return str(match.group(1)).strip().strip("\"")
+
+
+def _decode_html_payload(payload: bytes, *, content_type: str | None) -> str:
+    preferred = _charset_from_content_type(content_type)
+    if preferred:
+        try:
+            return payload.decode(preferred, errors="replace")
+        except (LookupError, ValueError):
+            pass
+
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            return payload.decode(encoding, errors="replace")
+        except (LookupError, ValueError):
+            continue
+    return payload.decode("utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -454,25 +521,48 @@ def fetch_html(
     if _is_cancel_requested(cancel_requested):
         raise WebpageScanCancelledError("Scan cancelled")
 
-    request = Request(page_url, headers={"User-Agent": USER_AGENT})
-    response_obj = _open_with_socket_fallback(request, timeout=timeout, opener=opener)
-    with response_obj as response:
+    last_error: Exception | None = None
+    header_profiles = _html_request_header_profiles(page_url)
+
+    for attempt_index, headers in enumerate(header_profiles):
         if _is_cancel_requested(cancel_requested):
             raise WebpageScanCancelledError("Scan cancelled")
 
-        content_type = None
-        headers = getattr(response, "headers", None)
-        if headers is not None and hasattr(headers, "get"):
-            content_type = headers.get("Content-Type")
-        if content_type:
-            lowered_type = content_type.lower()
-            if all(marker not in lowered_type for marker in ("html", "xml", "text/plain")):
-                raise ValueError(f"Expected HTML response, got {content_type!r}")
+        request = Request(page_url, headers=headers)
+        try:
+            response_obj = _open_with_socket_fallback(request, timeout=timeout, opener=opener)
+            with response_obj as response:
+                if _is_cancel_requested(cancel_requested):
+                    raise WebpageScanCancelledError("Scan cancelled")
 
-        raw = response.read()
-        if _is_cancel_requested(cancel_requested):
-            raise WebpageScanCancelledError("Scan cancelled")
-        return raw.decode("utf-8", errors="replace")
+                content_type = None
+                response_headers = getattr(response, "headers", None)
+                if response_headers is not None and hasattr(response_headers, "get"):
+                    content_type = response_headers.get("Content-Type")
+                if content_type:
+                    lowered_type = content_type.lower()
+                    if all(marker not in lowered_type for marker in ("html", "xml", "text/plain")):
+                        raise ValueError(f"Expected HTML response, got {content_type!r}")
+
+                raw = response.read()
+                if _is_cancel_requested(cancel_requested):
+                    raise WebpageScanCancelledError("Scan cancelled")
+                return _decode_html_payload(raw, content_type=content_type)
+        except WebpageScanCancelledError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            should_retry = (
+                attempt_index + 1 < len(header_profiles)
+                and _is_retryable_fetch_error(exc)
+            )
+            if not should_retry:
+                break
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Failed to fetch webpage HTML")
+
 
 def extract_image_urls_from_html(
     html: str,

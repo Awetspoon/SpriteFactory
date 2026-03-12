@@ -112,6 +112,12 @@ class WebSourcesCoordinator:
         lowered = str(detail or "").lower()
         if "winerror 10013" in lowered or "forbidden by its access permissions" in lowered:
             return cls.WINDOWS_BLOCKED_ACCESS_TEXT
+        if "http error 403" in lowered:
+            return "HTTP 403 (Forbidden): website blocked automated scan requests. Try Network Check or a direct file URL."
+        if "http error 429" in lowered:
+            return "HTTP 429 (Rate limited): try again in a minute, or reduce repeated scans on this host."
+        if "http error 401" in lowered:
+            return "HTTP 401 (Unauthorized): this page needs authentication/cookies before scanning."
         return str(detail)
 
     @classmethod

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2 - 2026-03-12
+- Hardened Web Sources HTML scan fetch with retry header profiles for blocked hosts (e.g., HTTP 403 fallback pass).
+- Added clearer Web Sources scan status messages for HTTP 401/403/429 cases.
+- Added regression tests for HTTP 403 scan retry + friendly error mapping.
+- Rewrote README for clearer product overview, workflow guidance, and release usage.
 ## 1.1.1 - 2026-03-12
 - Replaced README/UI screenshot with a true full-size capture of the running **Sprite Factory Pro** app window.
 - Synced repository docs to reflect the current branded UI state.

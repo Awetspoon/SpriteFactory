@@ -1,122 +1,109 @@
-﻿# Sprite Factory Pro
+# Sprite Factory Pro
 
-Sprite Factory Pro is a Windows desktop image/sprite editor built with PySide6. It focuses on fast preview-driven cleanup, preset workflows, batch processing, and export for game and web assets.
+Sprite Factory Pro is a Windows desktop app for sprite and image cleanup, enhancement, and export. It is built for people who need to process many assets quickly without losing control over quality.
 
-[Latest release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [All releases](https://github.com/Awetspoon/SpriteFactory/releases) | [Docs index](docs/README.md) | [Project structure](docs/PROJECT_STRUCTURE.md)
+[Latest release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [All releases](https://github.com/Awetspoon/SpriteFactory/releases) | [Docs index](docs/README.md)
 
 ![Sprite Factory main window](docs/sprite-factory-ui.png)
 
-## Features
+## What The Program Does
 
-- Local file/folder/ZIP import and URL/webpage image ingestion
-- Custom-only Web Sources registry (no forced built-in website defaults)
-- Workspace tabs with pinning and large-workspace sectioning
-- Guided editor controls across `Simple`, `Advanced`, and `Expert` modes
-- Preset system with user presets and safe mode-aware application
-- Before/Current/Final preview workflow with reset/zoom support
-- Batch processing with progress and cooperative cancel support
-- Session save/load + autosave recovery
-- Multi-format export (`PNG`, `WEBP`, `JPG`, `GIF`, `ICO`, `TIFF`, `BMP`)
-- Windows packaging via PyInstaller (`onedir` and `onefile`)
+- Imports sprites/images from local files, folders, ZIP archives, and web pages
+- Detects and lists downloadable image links from URL scan areas
+- Lets you apply presets or manual controls for cleanup/upscale/detail/transparency
+- Shows side-by-side preview (`Before` and `Final`) while editing
+- Exports to `PNG`, `WEBP`, `JPG`, `GIF`, `ICO`, `TIFF`, and `BMP`
+- Runs batch exports with progress, cancellation, and auto-export queueing
+- Saves sessions so users can reopen and continue work later
+
+## Core Workflow
+
+1. Start a new session from the top toolbar.
+2. Import assets from the `Import` dropdown (file/folder/ZIP) or use `Web Sources`.
+3. Pick a preset from the preset dropdown.
+4. Fine-tune controls in `Settings` (resolution, detail, cleanup, transparency, export).
+5. Click `Apply` for preview updates.
+6. Export one asset, or open `Batch Manager` to export selected items automatically.
+
+## Web Sources (URL Scanner)
+
+- `Scan Area` scans a website area and collects direct + likely media links.
+- `Network Check` helps diagnose DNS/TCP/HTTP access issues.
+- Friendly errors are shown for common blockers:
+  - `WinError 10013` (Windows blocked network access)
+  - `HTTP 403` (site blocked automated requests)
+  - `HTTP 429` (rate limited)
+- If a site blocks scans, use a direct file URL where possible.
 
 ## Requirements
 
 - Windows 10/11
-- Python `3.11+`
-- `PySide6`
-- `Pillow`
-- `PyInstaller` (build only)
+- Python 3.11+
+- PySide6
+- Pillow
+- PyInstaller (build only)
 
-## Setup (From Source)
+## Run From Source
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -U pip
 pip install PySide6 pillow pyinstaller
-```
 
-## Run
-
-Option A (recommended helper script):
-
-```powershell
+# Launch
 powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 ```
 
-Option B (direct module run):
+Direct module run:
 
 ```powershell
 $env:PYTHONPATH = "image_engine_app"
 python -m app.main --app-data-dir .\_ui_check
 ```
 
-## Build
+## Build Windows EXE
 
-Onedir build:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
-```
-
-Output:
-- `dist\SpriteFactory\SpriteFactory.exe`
-
-Onefile build:
+One-file release build:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1
 ```
 
 Output:
+
 - `dist\SpriteFactory.exe`
 
-## Publish / Release Flow
+Folder (onedir) build:
 
-1. Run audit: `powershell -ExecutionPolicy Bypass -File .\RUN_AUDIT.ps1`
-2. Run tests: `\.venv\Scripts\python.exe -B -m unittest discover -s image_engine_app\tests`
-3. Build release artifact (`build_exe.ps1` or `build_exe_onefile.ps1`)
-4. Validate packaged app with checks from [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
-5. Publish release/tag on GitHub
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
+```
 
-## Testing
+Output:
+
+- `dist\SpriteFactory\SpriteFactory.exe`
+
+## Tests
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m unittest discover -s image_engine_app\tests -p "test_*.py"
 ```
 
-## Folder Structure
+## Repository Layout
 
 ```text
 image_engine_app/
-  app/              # startup, controller, persistence/settings services
-  ui/               # main window, coordinators, widgets, dialogs
-  engine/           # ingest, processing, analysis, export, batch
-  tests/            # unit + smoke tests
-  docs/             # integration/reference docs
+  app/              # startup/controller/settings
+  ui/               # main window + coordinators/widgets/dialogs
+  engine/           # ingest/process/analyze/export/batch
+  tests/            # automated tests
 
-image_engine_v3/     # parallel rebuild scaffold still used by tests/adapters
-docs/                # repository-level docs and screenshots
-pyinstaller_rthooks/ # runtime hooks for frozen app
-requirements.txt     # convenience install list for runtime/build dependencies
+image_engine_v3/     # staged rebuild track
+pyinstaller_rthooks/ # runtime hooks for frozen build
+docs/                # repo docs and screenshots
 ```
-
-## V3 Rebuild Track
-
-A clean rebuild track exists in `image_engine_v3/` so features can migrate without destabilizing the live app.
-
-- Plan: [docs/V3_REBUILD_PLAN.md](docs/V3_REBUILD_PLAN.md)
-- Architecture: [docs/V3_ARCHITECTURE.md](docs/V3_ARCHITECTURE.md)
-
-## Configuration
-
-Optional environment variables (see `.env.example`):
-
-- `IMAGE_ENGINE_APPDATA_DIR`: override app data root (sessions/cache/logs)
-- `PYTHONPATH=image_engine_app`: required when launching module directly from repo root
-
-Generated runtime folders such as `_ui_check/`, `_ui_check_v3/`, `build/`, and `dist/` are intentionally not part of the tracked source layout.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)

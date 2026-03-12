@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +136,27 @@ class WebpageScanTests(unittest.TestCase):
         self.assertIn("/images/a.png", html)
         self.assertEqual(1, calls["primary"])
         self.assertEqual(1, calls["fallback"])
+
+    def test_fetch_html_retries_on_http_403_with_alternate_headers(self) -> None:
+        attempts = {"count": 0}
+
+        def opener(request, timeout=0):  # noqa: ANN001
+            _ = timeout
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise HTTPError(
+                    url=request.full_url,
+                    code=403,
+                    msg="Forbidden",
+                    hdrs=None,
+                    fp=None,
+                )
+            return _FakeResponse(b"<html><body><img src=\"/images/retry.png\"></body></html>")
+
+        html = fetch_html("https://example.com/gallery/page.html", opener=opener)
+
+        self.assertIn("/images/retry.png", html)
+        self.assertEqual(2, attempts["count"])
 
     def test_scan_webpage_for_images_fetches_html_with_mocked_opener(self) -> None:
         def opener(request, timeout=0):  # noqa: ANN001

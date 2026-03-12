@@ -152,6 +152,13 @@ class _Win10013Controller:
         raise RuntimeError("<urlopen error [WinError 10013] blocked>")
 
 
+
+class _Http403Controller:
+    app_paths = None
+
+    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
+        raise RuntimeError("HTTP Error 403: Forbidden")
+
 class _FakeWindow:
     def __init__(self, controller: object | None = None) -> None:
         self.controller = controller if controller is not None else _FakeController()
@@ -217,6 +224,34 @@ class WebSourcesCoordinatorRegressionTests(unittest.TestCase):
         latest = window.web_sources_panel.status_messages[-1]
         self.assertIn("Scan failed:", latest)
         self.assertIn("Windows blocked network access (WinError 10013)", latest)
+
+    def test_scan_http_403_maps_to_friendly_message(self) -> None:
+        window = _FakeWindow(controller=_Http403Controller())
+        coordinator = WebSourcesCoordinator(window)
+
+        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
+            coordinator_module,
+            "QApplication",
+            _FakeApp,
+        ):
+            coordinator.on_scan_requested(
+                {
+                    "area_url": "https://example.com/gallery",
+                    "website_id": None,
+                    "area_id": None,
+                    "smart": {
+                        "show_likely": False,
+                        "auto_sort": False,
+                        "skip_duplicates": True,
+                        "allow_zip": True,
+                    },
+                }
+            )
+
+        self.assertTrue(window.web_sources_panel.status_messages)
+        latest = window.web_sources_panel.status_messages[-1]
+        self.assertIn("Scan failed:", latest)
+        self.assertIn("HTTP 403 (Forbidden)", latest)
 
     def test_network_diagnostics_updates_status(self) -> None:
         window = _FakeWindow()

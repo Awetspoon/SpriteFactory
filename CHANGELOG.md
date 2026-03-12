@@ -1,4 +1,8 @@
-﻿# Changelog
+# Changelog
+
+## 1.1.1 - 2026-03-12
+- Replaced README/UI screenshot with a true full-size capture of the running **Sprite Factory Pro** app window.
+- Synced repository docs to reflect the current branded UI state.
 
 ## 1.1.0 - 2026-03-12
 - Rebranded UI and runtime identity to **Sprite Factory Pro**.

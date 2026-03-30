@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "image-engine-app"
+version = "1.2.0"
+description = "Sprite Factory desktop image engine"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "Pillow>=10.0",
+  "PySide6>=6.6",
+]
+
+[project.optional-dependencies]
+build = [
+  "PyInstaller>=6.0",
+]
+
+[project.scripts]
+spritefactory = "image_engine_app.launcher:main"
+spritefactory-audit = "image_engine_app.app.audit:main"
+
+[tool.setuptools.packages.find]
+include = ["image_engine_app*", "image_engine_v3*"]
+exclude = ["image_engine_app.tests*"]

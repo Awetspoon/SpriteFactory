@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sprite Factory Shell Redesign</title>
+  <style>
+    :root {
+      --bg: #e8eeef;
+      --bg-soft: #f6f8f8;
+      --panel: #fdfdfb;
+      --panel-2: #f2f6f6;
+      --line: #d5dedd;
+      --line-2: #c3d0cf;
+      --text: #17383c;
+      --muted: #688388;
+      --accent: #1a7a72;
+      --accent-soft: #dff0ec;
+      --gold: #d8b56a;
+      --gold-soft: #fff3d8;
+      --ink: #143035;
+      --shadow: 0 18px 38px rgba(23, 56, 60, 0.08);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,0.9), transparent 32%),
+        linear-gradient(180deg, #eef3f3 0%, #e4ebeb 100%);
+      font-family: "Segoe UI Variable Text", "Bahnschrift", "Trebuchet MS", sans-serif;
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .window {
+      width: 1820px;
+      height: 980px;
+      border-radius: 24px;
+      overflow: hidden;
+      background: rgba(250, 252, 252, 0.92);
+      border: 1px solid rgba(203, 217, 216, 0.95);
+      box-shadow: 0 30px 80px rgba(29, 58, 61, 0.14);
+      display: grid;
+      grid-template-rows: 42px 78px 1fr;
+      backdrop-filter: blur(10px);
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(244,248,248,0.82));
+      border-bottom: 1px solid rgba(211, 222, 221, 0.9);
+      font-size: 15px;
+      letter-spacing: 0.01em;
+    }
+
+    .titlebar .left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+    }
+
+    .appdot {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #2b9d90, #0f665f);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5);
+    }
+
+    .titlebar .right {
+      display: flex;
+      gap: 10px;
+    }
+
+    .winbtn {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #cad8d8;
+    }
+
+    .topbar {
+      padding: 16px 18px 14px;
+      background: linear-gradient(180deg, rgba(247, 250, 250, 0.96), rgba(239, 245, 245, 0.94));
+      border-bottom: 1px solid rgba(211, 222, 221, 0.95);
+      display: grid;
+      gap: 12px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .toolbar-left,
+    .toolbar-right,
+    .toolbar-center {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .toolbar-center {
+      justify-content: center;
+    }
+
+    .chip,
+    .btn,
+    .modebox {
+      height: 38px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff, #f5f8f8);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 650;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .chip.mini {
+      height: 34px;
+      padding: 0 12px;
+      font-size: 13px;
+      border-radius: 11px;
+    }
+
+    .chip.ghost {
+      color: var(--muted);
+      background: rgba(255,255,255,0.75);
+    }
+
+    .chip.active {
+      background: linear-gradient(180deg, #fff7e7, #fff0cf);
+      border-color: #e3c06e;
+      color: #6f4f17;
+    }
+
+    .btn.primary {
+      background: linear-gradient(180deg, #287f76, #176b64);
+      border-color: #15655d;
+      color: #fff;
+    }
+
+    .modebox {
+      min-width: 138px;
+      justify-content: space-between;
+    }
+
+    .navtabs {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .navtab {
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      color: var(--muted);
+      background: transparent;
+      display: inline-flex;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .navtab.active {
+      color: var(--ink);
+      background: #ffffff;
+      border-color: var(--line);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset;
+    }
+
+    .content {
+      padding: 16px 18px 18px;
+      display: grid;
+      grid-template-columns: 296px minmax(0, 1fr) 424px;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(246,249,249,0.94));
+      border: 1px solid rgba(210, 220, 219, 0.94);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      min-height: 0;
+    }
+
+    .left-rail {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .section-label {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: #58757b;
+    }
+
+    .workspace-card {
+      padding: 14px;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top left, rgba(223,240,236,0.9), transparent 48%),
+        linear-gradient(180deg, #fdfefe, #f5f8f8);
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .thumb-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .thumb {
+      border-radius: 16px;
+      border: 1px solid #d4dede;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .thumb.active {
+      border-color: #8fc0b6;
+      box-shadow: inset 0 0 0 1px rgba(43, 126, 118, 0.25);
+      background: linear-gradient(180deg, #ffffff, #f2faf8);
+    }
+
+    .thumb-box {
+      height: 52px;
+      border-radius: 12px;
+      background:
+        linear-gradient(135deg, rgba(33,126,117,0.16), rgba(216,181,106,0.18)),
+        #f4f6f6;
+      border: 1px dashed #bfcfce;
+    }
+
+    .thumb-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .thumb-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #6fb8ac;
+    }
+
+    .preset-card {
+      padding: 14px;
+      border-radius: 20px;
+      background: #f5f8f8;
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+    }
+
+    .preset-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 12px;
+      border-radius: 14px;
+      background: #fff;
+      border: 1px solid #d9e2e1;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .center-shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
+      gap: 12px;
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .stage-header {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .stage-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .stage-title h2 {
+      margin: 0;
+      font-size: 23px;
+      line-height: 1;
+      font-weight: 750;
+    }
+
+    .microcopy {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .preview-stage {
+      border-radius: 26px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247,250,250,0.97)),
+        radial-gradient(circle at top left, rgba(223,240,236,0.7), transparent 30%);
+      padding: 16px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .compare-head {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      font-size: 15px;
+      font-weight: 750;
+    }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .canvas-card {
+      border-radius: 22px;
+      background:
+        linear-gradient(180deg, rgba(248,251,251,0.96), rgba(240,245,245,0.96));
+      border: 1px solid #d9e2e2;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .checker {
+      width: 82%;
+      height: 74%;
+      border-radius: 18px;
+      border: 1px dashed #b7c9c8;
+      background:
+        linear-gradient(45deg, #f7f9f9 25%, transparent 25%, transparent 75%, #f7f9f9 75%),
+        linear-gradient(45deg, #f7f9f9 25%, transparent 25%, transparent 75%, #f7f9f9 75%),
+        linear-gradient(180deg, #ffffff, #fbfbfb);
+      background-size: 28px 28px, 28px 28px, auto;
+      background-position: 0 0, 14px 14px, 0 0;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65);
+      position: relative;
+    }
+
+    .checker::after {
+      content: "Preview";
+      position: absolute;
+      inset: auto 0 20px 0;
+      text-align: center;
+      font-size: 13px;
+      color: #6f878b;
+      font-weight: 700;
+    }
+
+    .canvas-card.final .checker::after {
+      content: "Final";
+    }
+
+    .canvas-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .tool-ribbon,
+    .export-ribbon {
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #fbfdfd, #f4f8f8);
+      padding: 14px;
+    }
+
+    .tool-ribbon {
+      display: grid;
+      grid-template-columns: 1.2fr 1.2fr 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .tool-group {
+      border-radius: 18px;
+      border: 1px solid #d8e1e1;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 96px;
+    }
+
+    .tool-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #5c777c;
+    }
+
+    .tool-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line-2);
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .pill.active {
+      border-color: #87bbaf;
+      background: #ecf8f5;
+      color: #12534f;
+    }
+
+    .pill.primary {
+      background: linear-gradient(180deg, #1c7d72, #156a63);
+      border-color: #15645d;
+      color: #fff;
+    }
+
+    .pill.warn {
+      background: var(--gold-soft);
+      border-color: var(--gold);
+      color: #725118;
+    }
+
+    .export-ribbon {
+      display: grid;
+      grid-template-columns: auto 124px 1fr auto auto auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .field {
+      height: 38px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .field.muted {
+      color: var(--muted);
+    }
+
+    .right-shell {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+      padding: 14px;
+      min-height: 0;
+    }
+
+    .inspector-top,
+    .search-card {
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #fbfdfd, #f4f8f8);
+      padding: 14px;
+    }
+
+    .inspector-top {
+      display: grid;
+      gap: 12px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .meta-pill {
+      border-radius: 12px;
+      border: 1px solid #d7e1e0;
+      background: #fff;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #48676d;
+    }
+
+    .jump-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .search-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .searchbox {
+      height: 40px;
+      border-radius: 13px;
+      border: 1px solid var(--line);
+      background: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      color: #8aa0a4;
+      font-size: 13px;
+    }
+
+    .inspector-scroll {
+      border-radius: 26px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(251,253,253,0.98), rgba(244,248,248,0.98));
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .stack-card {
+      border-radius: 20px;
+      border: 1px solid #d8e1e0;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .stack-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e2e9e8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(180deg, #f8fbfb, #f2f7f7);
+    }
+
+    .stack-head .title {
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .stack-body {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr 138px;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .setting-input {
+      height: 36px;
+      border-radius: 11px;
+      border: 1px solid #d3dddd;
+      background: #fbfdfd;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #25484e;
+      font-weight: 700;
+    }
+
+    .compact-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .collapsed {
+      height: 46px;
+      border-radius: 16px;
+      border: 1px solid #d8e1e0;
+      background: #fff;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 750;
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="left">
+        <div class="appdot"></div>
+        <div>Sprite Factory Pro</div>
+      </div>
+      <div class="right">
+        <div class="winbtn"></div>
+        <div class="winbtn"></div>
+        <div class="winbtn"></div>
+      </div>
+    </div>
+
+    <div class="topbar">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="btn">Session</div>
+          <div class="btn">Import</div>
+          <div class="modebox"><span>Mode</span><span>Simple</span></div>
+        </div>
+        <div class="toolbar-center">
+          <div class="chip mini">FMT: PNG</div>
+          <div class="chip mini">Alpha: Yes</div>
+          <div class="chip mini">Frames: 12</div>
+          <div class="chip mini active">CPU</div>
+          <div class="chip mini">GPU</div>
+        </div>
+        <div class="toolbar-right">
+          <div class="btn">Batch</div>
+          <div class="btn">Presets</div>
+          <div class="btn">View</div>
+        </div>
+      </div>
+      <div class="navtabs">
+        <div class="navtab active">Workspace</div>
+        <div class="navtab">Web Sources</div>
+        <div class="navtab">Helper</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="panel left-rail">
+        <div class="workspace-card">
+          <div class="section-label">Workspace</div>
+          <div class="thumb-grid">
+            <div class="thumb active">
+              <div class="thumb-box"></div>
+              <div>
+                <div class="thumb-title">trainer_idle.png</div>
+                <div class="thumb-meta">Selected · 512×512 · PNG</div>
+              </div>
+              <div class="status-dot"></div>
+            </div>
+            <div class="thumb">
+              <div class="thumb-box"></div>
+              <div>
+                <div class="thumb-title">trainer_run.gif</div>
+                <div class="thumb-meta">Animated · 12 frames</div>
+              </div>
+              <div class="status-dot" style="background:#d9bc77"></div>
+            </div>
+            <div class="thumb">
+              <div class="thumb-box"></div>
+              <div>
+                <div class="thumb-title">portrait_export.webp</div>
+                <div class="thumb-meta">Final ready</div>
+              </div>
+              <div class="status-dot" style="background:#7ea9ca"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="workspace-card" style="justify-content:center;">
+          <div class="section-label">Tabs</div>
+          <div class="thumb-grid">
+            <div class="preset-row"><span>Workspace Tab A</span><span>1</span></div>
+            <div class="preset-row"><span>Workspace Tab B</span><span>2</span></div>
+            <div class="preset-row"><span>Workspace Tab C</span><span>3</span></div>
+          </div>
+        </div>
+
+        <div class="preset-card">
+          <div class="section-label">Presets</div>
+          <div class="preset-row"><span>Web Quick Export</span><span>Apply</span></div>
+          <div class="preset-row"><span>Pixel Clean Upscale</span><span>Apply</span></div>
+        </div>
+      </div>
+
+      <div class="panel center-shell">
+        <div class="stage-header">
+          <div class="stage-title">
+            <h2>Preview Studio</h2>
+            <div class="chip mini">Format · PNG</div>
+          </div>
+          <div class="microcopy">One clear workspace: preview first, controls second, export always visible.</div>
+          <div style="display:flex; gap:8px;">
+            <div class="chip mini active">Crisp On</div>
+            <div class="chip mini ghost">Zoom 100%</div>
+          </div>
+        </div>
+
+        <div class="preview-stage">
+          <div class="compare-head">
+            <div>Current</div>
+            <div>Final</div>
+          </div>
+          <div class="compare-grid">
+            <div class="canvas-card">
+              <div class="checker"></div>
+            </div>
+            <div class="canvas-card final">
+              <div class="checker"></div>
+            </div>
+          </div>
+          <div class="canvas-meta">
+            <div>WxH: 512×512  |  Scale: 1×  |  Zoom: 100%</div>
+            <div>WxH: 512×512  |  Scale: 1×  |  Zoom: 100%</div>
+          </div>
+        </div>
+
+        <div class="tool-ribbon">
+          <div class="tool-group">
+            <div class="tool-title">Target</div>
+            <div class="tool-actions">
+              <div class="pill">Current</div>
+              <div class="pill">Final</div>
+              <div class="pill active">Both</div>
+            </div>
+          </div>
+
+          <div class="tool-group">
+            <div class="tool-title">Live</div>
+            <div class="tool-actions">
+              <div class="pill active">Sync Views</div>
+              <div class="pill active">Auto Preview</div>
+            </div>
+          </div>
+
+          <div class="tool-group">
+            <div class="tool-title">Run</div>
+            <div class="tool-actions">
+              <div class="pill">Preview</div>
+              <div class="pill primary">Apply</div>
+            </div>
+          </div>
+
+          <div style="display:grid; gap:8px; align-content:end;">
+            <div class="pill warn">Queued: 2</div>
+            <div class="pill">More</div>
+          </div>
+        </div>
+
+        <div class="export-ribbon">
+          <div class="section-label">Export</div>
+          <div class="field">Web</div>
+          <div class="field muted">C:\Exports\SpriteFactory\session_12</div>
+          <div class="btn">Browse</div>
+          <div class="btn">Open</div>
+          <div class="btn primary">Export</div>
+        </div>
+      </div>
+
+      <div class="panel right-shell">
+        <div class="inspector-top">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div style="font-size:24px; font-weight:760;">Settings</div>
+            <div class="btn">Reset</div>
+          </div>
+          <div class="meta-grid">
+            <div class="meta-pill">Mode: Simple</div>
+            <div class="meta-pill">Visible Groups: 6</div>
+            <div class="meta-pill">Format: PNG</div>
+            <div class="meta-pill">Capabilities: Alpha</div>
+          </div>
+          <div class="jump-row">
+            <div class="chip mini">Pixel</div>
+            <div class="chip mini">Cleanup</div>
+            <div class="chip mini">Transparency</div>
+            <div class="chip mini">Export</div>
+          </div>
+        </div>
+
+        <div class="search-card">
+          <div class="searchbox">Search settings groups, format tools, or export options…</div>
+          <div class="btn">Filters</div>
+        </div>
+
+        <div class="inspector-scroll">
+          <div class="stack-card">
+            <div class="stack-head">
+              <div class="title">Pixel & Resolution</div>
+              <div class="chip mini ghost">Core</div>
+            </div>
+            <div class="stack-body">
+              <div class="setting-row">
+                <div>Resize %</div>
+                <div class="setting-input"><span>100%</span><span>▾</span></div>
+              </div>
+              <div class="setting-row">
+                <div>DPI</div>
+                <div class="setting-input"><span>72</span><span>▾</span></div>
+              </div>
+              <div class="setting-row">
+                <div>Scale Method</div>
+                <div class="setting-input"><span>Nearest</span><span>▾</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack-card">
+            <div class="stack-head">
+              <div class="title">Color & Light</div>
+              <div class="chip mini active">Live</div>
+            </div>
+            <div class="stack-body">
+              <div class="setting-row">
+                <div>Brightness</div>
+                <div class="setting-input"><span>0.00</span><span>▾</span></div>
+              </div>
+              <div class="setting-row">
+                <div>Contrast</div>
+                <div class="setting-input"><span>0.12</span><span>▾</span></div>
+              </div>
+              <div class="setting-row">
+                <div>Saturation</div>
+                <div class="setting-input"><span>0.00</span><span>▾</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="compact-stack">
+            <div class="collapsed"><span>Detail</span><span>+</span></div>
+            <div class="collapsed"><span>Cleanup</span><span>+</span></div>
+            <div class="collapsed"><span>Transparency</span><span>+</span></div>
+            <div class="collapsed"><span>GIF Controls</span><span>+</span></div>
+            <div class="collapsed"><span>Export</span><span>+</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

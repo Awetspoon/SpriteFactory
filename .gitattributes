@@ -1,0 +1,19 @@
+# Normalize text files
+* text=auto
+
+# Source and docs prefer LF
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# PowerShell scripts keep CRLF for Windows friendliness
+*.ps1 text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.exe binary
+*.zip binary

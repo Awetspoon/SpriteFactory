@@ -1,0 +1,6 @@
+# Runtime dependencies
+Pillow>=10.0
+PySide6>=6.6
+
+# Build dependency
+PyInstaller>=6.0

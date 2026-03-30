@@ -1,0 +1,61 @@
+# Python
+.venv/
+venv/
+__pycache__/
+.cache/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Test and coverage
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build outputs
+build/
+dist/
+.local/
+
+# Local app runtime data
+_ui_check/
+_ui_check_live_demo/
+_audit/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+
+# IDE / OS
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Nested Python caches
+**/__pycache__/
+
+# Additional local runtime data
+_ui_check_v3/
+*.egg-info/
+
+# Local concept and visual scratch outputs
+_brand_concepts/
+._ui_check_visible/
+._*
+
+_runtime_data/
+
+_runtime_data_test/

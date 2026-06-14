@@ -10,9 +10,8 @@ from image_engine_app.engine.models import EditMode, EditState, SettingsState
 
 
 MODE_ORDER = {
-    EditMode.SIMPLE: 0,
-    EditMode.ADVANCED: 1,
-    EditMode.EXPERT: 2,
+    EditMode.ADVANCED: 0,
+    EditMode.EXPERT: 1,
 }
 
 
@@ -52,7 +51,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=400.0,
         maximum=1600.0,
         mode_limits={
-            EditMode.SIMPLE: (50.0, 400.0),
             EditMode.ADVANCED: (10.0, 800.0),
             EditMode.EXPERT: (1.0, 1600.0),
         },
@@ -65,7 +63,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=16384,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (1, 4096),
             EditMode.ADVANCED: (1, 8192),
             EditMode.EXPERT: (1, 16384),
         },
@@ -78,7 +75,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=16384,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (1, 4096),
             EditMode.ADVANCED: (1, 8192),
             EditMode.EXPERT: (1, 16384),
         },
@@ -91,7 +87,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=1200,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (72, 300),
             EditMode.ADVANCED: (36, 600),
             EditMode.EXPERT: (1, 1200),
         },
@@ -103,7 +98,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.25,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (-0.25, 0.25),
             EditMode.ADVANCED: (-0.5, 0.5),
             EditMode.EXPERT: (-1.0, 1.0),
         },
@@ -115,7 +109,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.3,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (-0.3, 0.3),
             EditMode.ADVANCED: (-0.6, 0.6),
             EditMode.EXPERT: (-1.0, 1.0),
         },
@@ -127,7 +120,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.4,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (-0.4, 0.4),
             EditMode.ADVANCED: (-0.75, 0.75),
             EditMode.EXPERT: (-1.0, 1.0),
         },
@@ -139,7 +131,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.4,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (-0.25, 0.25),
             EditMode.ADVANCED: (-0.5, 0.5),
             EditMode.EXPERT: (-1.0, 1.0),
         },
@@ -151,7 +142,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=2.0,
         maximum=5.0,
         mode_limits={
-            EditMode.SIMPLE: (0.5, 2.0),
             EditMode.ADVANCED: (0.25, 3.0),
             EditMode.EXPERT: (0.1, 5.0),
         },
@@ -163,7 +153,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=1.0,
         maximum=3.0,
         mode_limits={
-            EditMode.SIMPLE: (0.0, 1.0),
             EditMode.ADVANCED: (0.0, 2.0),
             EditMode.EXPERT: (0.0, 3.0),
         },
@@ -175,7 +164,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.5,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (0.0, 0.5),
             EditMode.ADVANCED: (0.0, 0.8),
             EditMode.EXPERT: (0.0, 1.0),
         },
@@ -187,7 +175,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.6,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (0.0, 0.4),
             EditMode.ADVANCED: (0.0, 0.8),
             EditMode.EXPERT: (0.0, 1.0),
         },
@@ -200,7 +187,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=255,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (0, 255),
             EditMode.ADVANCED: (0, 255),
             EditMode.EXPERT: (0, 255),
         },
@@ -212,7 +198,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=2.0,
         maximum=8.0,
         mode_limits={
-            EditMode.SIMPLE: (1.0, 2.0),
             EditMode.ADVANCED: (1.0, 4.0),
             EditMode.EXPERT: (1.0, 8.0),
         },
@@ -224,7 +209,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         safe_max=0.5,
         maximum=1.0,
         mode_limits={
-            EditMode.SIMPLE: (0.0, 0.3),
             EditMode.ADVANCED: (0.0, 0.7),
             EditMode.EXPERT: (0.0, 1.0),
         },
@@ -237,7 +221,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=5000,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (10, 500),
             EditMode.ADVANCED: (1, 2000),
             EditMode.EXPERT: (1, 5000),
         },
@@ -250,7 +233,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=256,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (16, 256),
             EditMode.ADVANCED: (2, 256),
             EditMode.EXPERT: (2, 256),
         },
@@ -263,7 +245,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=100,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (50, 100),
             EditMode.ADVANCED: (1, 100),
             EditMode.EXPERT: (1, 100),
         },
@@ -276,7 +257,6 @@ DEFAULT_SETTING_BOUNDS: dict[str, NumericBounds] = {
         maximum=9,
         integer=True,
         mode_limits={
-            EditMode.SIMPLE: (0, 9),
             EditMode.ADVANCED: (0, 9),
             EditMode.EXPERT: (0, 9),
         },

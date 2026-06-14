@@ -8,8 +8,8 @@ This makes the app feel heavier than it needs to, even when the underlying contr
 ## What landed in this slice
 
 - a live settings header that summarizes the active asset, mode, format, and capabilities
-- quick-jump buttons for high-traffic groups (`Pixel and Resolution`, `Cleanup`, `Transparency`, `Export`)
-- clearer toolbox styling so sections read like intentional cards instead of a long accordion
+- tile picker for high-traffic groups (`Pixel`, `Cleanup`, `Alpha`, `Export`, `Encoding`)
+- clearer toolbox styling so sections read like intentional tile cards
 - helper state for the header summary plus focused tests for summary and quick-jump behavior
 
 ## Rebuild direction

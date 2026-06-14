@@ -13,7 +13,6 @@ from image_engine_app.engine.models import (
     HeavyTool,
     normalize_background_removal_mode,
 )
-from image_engine_app.engine.process.performance_backend import PerformanceBackend, PerformanceModeResolution
 from image_engine_app.engine.process.preview_support import render_light_pipeline_preview
 
 
@@ -21,7 +20,6 @@ from image_engine_app.engine.process.preview_support import render_light_pipelin
 class HeavyJobExecutionResult:
     """Result of running a queued heavy job against an asset."""
 
-    resolution: PerformanceModeResolution
     rendered_preview: bool
 
 
@@ -30,30 +28,24 @@ def execute_heavy_job(
     job: HeavyJobSpec,
     *,
     derived_cache_dir: str | Path | None,
-    performance_backend: PerformanceBackend,
-    requested_mode: str,
 ) -> HeavyJobExecutionResult:
     """Execute a heavy job by applying its effect to the asset and rendering outputs."""
 
-    resolution = performance_backend.run_heavy_job(job, requested_mode=requested_mode)
     _apply_job_effect_to_asset(asset, job)
     cache_root = derived_cache_dir if derived_cache_dir is not None else (Path(".") / "_derived_cache")
     local_source = _resolve_local_source(asset)
 
     if local_source is None:
         return HeavyJobExecutionResult(
-            resolution=resolution,
             rendered_preview=False,
         )
 
     if not render_light_pipeline_preview(asset, derived_cache_dir=cache_root, final_only=False):
         return HeavyJobExecutionResult(
-            resolution=resolution,
             rendered_preview=False,
         )
 
     return HeavyJobExecutionResult(
-        resolution=resolution,
         rendered_preview=True,
     )
 

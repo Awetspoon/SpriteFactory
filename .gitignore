@@ -33,6 +33,7 @@ _audit/
 *.log
 *.tmp
 *.bak
+tmp/
 
 # IDE / OS
 .vscode/

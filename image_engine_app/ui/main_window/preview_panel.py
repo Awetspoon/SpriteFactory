@@ -159,7 +159,7 @@ class PreviewPanel(QWidget):
         reset_button.setText("Reset")
         reset_button.setToolTip(f"Reset the {title.lower()} preview back to fit view.")
 
-        canvas = QLabel("No image", self)
+        canvas = QLabel(self._empty_canvas_text(), self)
         canvas.setObjectName("previewCanvas")
         canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
         canvas.setMinimumSize(240, 240)
@@ -575,8 +575,8 @@ class PreviewPanel(QWidget):
         pane.zoom_factor = 1.0
         pane.auto_follow_zoom = True
         pane.canvas.clear()
-        pane.canvas.setText("No image")
-        pane.canvas.setFixedSize(180, 180)
+        pane.canvas.setText(self._empty_canvas_text())
+        pane.canvas.setFixedSize(220, 160)
         pane.overlay.setText("WxH: -- | Scale: -- | Zoom: 100%")
         self._refresh_pan_cursor(pane)
 
@@ -588,8 +588,8 @@ class PreviewPanel(QWidget):
         _ = key
         if pane.qimage is None:
             pane.canvas.clear()
-            pane.canvas.setText("No image")
-            pane.canvas.setFixedSize(180, 180)
+            pane.canvas.setText(self._empty_canvas_text())
+            pane.canvas.setFixedSize(220, 160)
             pane.overlay.setText("WxH: -- | Scale: -- | Zoom: 100%")
             pane.badge.setVisible(False)
             self._refresh_pan_cursor(pane)
@@ -711,6 +711,10 @@ class PreviewPanel(QWidget):
                     continue
 
         return source_path
+
+    @staticmethod
+    def _empty_canvas_text() -> str:
+        return "Image\n\nNo image"
 
 
 

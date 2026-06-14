@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -29,41 +31,52 @@ from PySide6.QtWidgets import (
 from image_engine_app.engine.models import (
     BackgroundRemovalMode,
     ChromaSubsampling,
-    EditMode,
     ExportFormat,
     ExportProfile,
     ScaleMethod,
     normalize_background_removal_mode,
 )
 from image_engine_app.engine.analyze.background_scan import BackgroundScanResult, inspect_background_state
+from image_engine_app.ui.common.icons import icon
 from image_engine_app.ui.common.state_bindings import EngineUIState
 from image_engine_app.ui.main_window.settings_group_builders import settings_group_builders
 from image_engine_app.ui.main_window.settings_panel_state import build_settings_panel_header_state
 
 
-MODE_ORDER = {
-    EditMode.SIMPLE.value: 0,
-    EditMode.ADVANCED.value: 1,
-    EditMode.EXPERT.value: 2,
-}
-
-
 @dataclass(frozen=True)
 class _GroupSpec:
     title: str
-    min_mode: str = EditMode.SIMPLE.value
     requires_alpha: bool = False
     requires_gif: bool = False
 
 
 class _SettingsGroupNavigator(QFrame):
-    """Stable section navigator + stacked pages for the settings panel."""
+    """Tile picker + stacked pages for the settings panel."""
 
     currentChanged = Signal(int)
+    TILE_SIZE = QSize(84, 76)
+    SHORT_TITLES = {
+        "Pixel and Resolution": "Pixel",
+        "Color and Light": "Color",
+        "Transparency": "Alpha",
+        "GIF Controls": "GIF",
+        "Export Encoding": "Encoding",
+    }
+    TILE_ICONS = {
+        "Pixel": "settings-pixel",
+        "Color": "settings-color",
+        "Detail": "settings-detail",
+        "Cleanup": "settings-cleanup",
+        "Edges": "settings-edges",
+        "Alpha": "settings-alpha",
+        "GIF": "settings-gif",
+        "Export": "settings-export",
+        "Encoding": "settings-encoding",
+    }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._buttons: list[QPushButton] = []
+        self._buttons: list[QToolButton] = []
         self._pages: list[QWidget] = []
         self._titles: list[str] = []
         self._current_index = -1
@@ -74,31 +87,49 @@ class _SettingsGroupNavigator(QFrame):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(10)
 
-        nav = QWidget(self)
-        nav.setObjectName("settingsGroupNavRail")
-        nav.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        self._nav_layout = QVBoxLayout(nav)
+        nav_card = QFrame(self)
+        nav_card.setObjectName("settingsGroupPickerCard")
+        nav_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        nav_layout = QVBoxLayout(nav_card)
+        nav_layout.setContentsMargins(8, 8, 8, 8)
+        nav_layout.setSpacing(8)
+
+        title = QLabel("Choose what to edit", nav_card)
+        title.setObjectName("settingsPickerTitle")
+        nav_layout.addWidget(title)
+
+        nav = QWidget(nav_card)
+        nav.setObjectName("settingsGroupTileGrid")
+        self._nav_layout = QGridLayout(nav)
         self._nav_layout.setContentsMargins(0, 0, 0, 0)
-        self._nav_layout.setSpacing(6)
-        self._nav_layout.addStretch(1)
-        root.addWidget(nav, 0)
+        self._nav_layout.setHorizontalSpacing(7)
+        self._nav_layout.setVerticalSpacing(7)
+        nav_layout.addWidget(nav, 0, Qt.AlignmentFlag.AlignHCenter)
+        root.addWidget(nav_card, 0)
         root.addWidget(self._stack, 1)
 
     def addItem(self, page: QWidget, title: str) -> int:
         index = len(self._pages)
-        button = QPushButton(title, self)
+        short_title = self.SHORT_TITLES.get(title, title)
+        button = QToolButton(self)
         button.setObjectName("settingsGroupNavButton")
+        button.setText(short_title)
+        button.setIcon(icon(self.TILE_ICONS.get(short_title, "settings-detail")))
+        button.setIconSize(QSize(22, 22))
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         button.setCheckable(True)
         button.setAutoExclusive(False)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setMinimumHeight(34)
-        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button.setFixedSize(self.TILE_SIZE)
+        button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         button.setToolTip(title)
         button.clicked.connect(lambda _checked=False, index=index: self.setCurrentIndex(index))
         self._button_group.addButton(button, index)
-        self._nav_layout.insertWidget(max(0, self._nav_layout.count() - 1), button)
+        row = index // 3
+        col = index % 3
+        self._nav_layout.addWidget(button, row, col, Qt.AlignmentFlag.AlignCenter)
 
         self._buttons.append(button)
         self._pages.append(page)
@@ -136,7 +167,9 @@ class _SettingsGroupNavigator(QFrame):
             return
         normalized = str(text or "")
         self._titles[index] = normalized
-        self._buttons[index].setText(normalized)
+        short_title = self.SHORT_TITLES.get(normalized, normalized)
+        self._buttons[index].setText(short_title if normalized else "")
+        self._buttons[index].setIcon(icon(self.TILE_ICONS.get(short_title, "settings-detail")) if normalized else icon(""))
 
     def setItemToolTip(self, index: int, text: str) -> None:
         if index < 0 or index >= len(self._buttons):
@@ -165,16 +198,15 @@ class SettingsPanel(QScrollArea):
     open_encoding_window_requested = Signal()
 
     GROUP_SPECS = [
-        _GroupSpec("Pixel and Resolution", min_mode=EditMode.SIMPLE.value),
-        _GroupSpec("Color and Light", min_mode=EditMode.SIMPLE.value),
-        _GroupSpec("Detail", min_mode=EditMode.SIMPLE.value),
-        _GroupSpec("Cleanup", min_mode=EditMode.SIMPLE.value),
-        _GroupSpec("Edges", min_mode=EditMode.ADVANCED.value),
-        _GroupSpec("Transparency", min_mode=EditMode.ADVANCED.value),
-        _GroupSpec("AI Enhance", min_mode=EditMode.ADVANCED.value),
-        _GroupSpec("GIF Controls", min_mode=EditMode.ADVANCED.value, requires_gif=True),
-        _GroupSpec("Export", min_mode=EditMode.SIMPLE.value),
-        _GroupSpec("Expert Encoding", min_mode=EditMode.EXPERT.value),
+        _GroupSpec("Pixel and Resolution"),
+        _GroupSpec("Color and Light"),
+        _GroupSpec("Detail"),
+        _GroupSpec("Cleanup"),
+        _GroupSpec("Edges"),
+        _GroupSpec("Transparency"),
+        _GroupSpec("GIF Controls", requires_gif=True),
+        _GroupSpec("Export"),
+        _GroupSpec("Export Encoding"),
     ]
     GROUP_HELP = {
         "Pixel and Resolution": "Real output size, DPI, target width/height, and scale style.",
@@ -183,14 +215,12 @@ class SettingsPanel(QScrollArea):
         "Cleanup": "Noise, halo, artifact, and banding cleanup.",
         "Edges": "Edge softness, refine, feather, and grow/shrink.",
         "Transparency": "White/black cutout and alpha edge cleanup.",
-        "AI Enhance": "Upscale, deblur, and reconstruction controls.",
         "GIF Controls": "Animation timing, palette, and GIF output tuning.",
         "Export": "Final output format, quality, and metadata settings.",
-        "Expert Encoding": "Compression, chroma, palette, and icon size tuning.",
+        "Export Encoding": "Compression, chroma, palette, and icon size tuning.",
     }
 
     _LOCK_THEME = {
-        "mode": ("#1f4d53", "#edf8f6", "#91bcb6"),
         "alpha": ("#0b5f4f", "#ecfdf6", "#9fdac4"),
         "gif": ("#7a4f0f", "#fff8e8", "#eac879"),
     }
@@ -198,16 +228,13 @@ class SettingsPanel(QScrollArea):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._ui_state: EngineUIState | None = None
-        self._search = QLineEdit(self)
         self._toolbox = _SettingsGroupNavigator(self)
-        self._filter_hint = QLabel("", self)
         self._header_title = QLabel(self)
         self._header_subtitle = QLabel(self)
         self._group_indices: dict[str, int] = {}
         self._group_specs_by_index: dict[int, _GroupSpec] = {}
         self._group_lock_labels_by_index: dict[int, QLabel] = {}
         self._group_controls_by_index: dict[int, QWidget] = {}
-        self._current_mode = EditMode.SIMPLE.value
         self._asset_has_alpha = False
         self._asset_is_gif = False
         self._background_scan = BackgroundScanResult()
@@ -291,21 +318,21 @@ class SettingsPanel(QScrollArea):
 
     def bind_state(self, ui_state: EngineUIState) -> None:
         self._ui_state = ui_state
-        ui_state.mode_changed.connect(self._on_mode_changed)
         ui_state.active_asset_changed.connect(self._on_active_asset_changed)
         ui_state.background_removal_mode_changed.connect(self._on_background_removal_mode_changed)
         ui_state.export_profile_changed.connect(lambda _value: self._sync_controls_from_asset(ui_state.active_asset))
-        self._on_mode_changed(ui_state.active_asset.edit_state.mode.value if ui_state.active_asset else EditMode.SIMPLE.value)
         self._on_active_asset_changed(ui_state.active_asset)
 
     def _build_ui(self) -> None:
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         container = QWidget(self)
+        container.setObjectName("settingsPanelViewport")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         header_card = QFrame(container)
         header_card.setObjectName("settingsHeaderCard")
@@ -318,7 +345,7 @@ class SettingsPanel(QScrollArea):
         self._header_title.setObjectName("shellTitle")
         title_row.addWidget(self._header_title, 1)
 
-        reset_current_btn = QPushButton("Reset Edits", header_card)
+        reset_current_btn = QPushButton("Reset All", header_card)
         reset_current_btn.setObjectName("settingsResetButton")
         reset_current_btn.setAutoDefault(False)
         reset_current_btn.setToolTip("Reset only the active asset edits back to the original default state.")
@@ -329,21 +356,10 @@ class SettingsPanel(QScrollArea):
 
         self._header_subtitle.setObjectName("shellSubtitle")
         self._header_subtitle.setWordWrap(True)
+        self._header_subtitle.setVisible(False)
         header_layout.addWidget(self._header_subtitle)
 
         layout.addWidget(header_card)
-
-        utility_row = QHBoxLayout()
-        utility_row.setSpacing(6)
-
-        self._search.setPlaceholderText("Filter sections...")
-        self._search.textChanged.connect(lambda _text: self._apply_filters())
-        utility_row.addWidget(self._search, 1)
-
-        self._filter_hint.setObjectName("shellHint")
-        self._filter_hint.setVisible(False)
-        layout.addLayout(utility_row)
-        layout.addWidget(self._filter_hint)
 
         self._toolbox.setObjectName("settingsGroupToolbox")
         self._toolbox.currentChanged.connect(self._on_toolbox_index_changed)
@@ -357,12 +373,24 @@ class SettingsPanel(QScrollArea):
             self._group_controls_by_index[idx] = controls_widget
             self._group_lock_labels_by_index[idx] = lock_label
 
+        self._build_hidden_compatibility_controls(container)
+
         layout.addStretch(0)
         self.setWidget(container)
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(380)
         self._apply_filters()
         self._set_bound_controls_enabled(False)
         self._refresh_header_summary()
+
+    def _build_hidden_compatibility_controls(self, parent: QWidget) -> None:
+        """Build settings that remain supported but are not part of the locked mock shell."""
+
+        hidden = QWidget(parent)
+        hidden.setVisible(False)
+        form = QFormLayout(hidden)
+        builder = settings_group_builders(self).get("AI Enhance")
+        if builder is not None:
+            builder(form, hidden)
 
     def _new_float_spin(
         self,
@@ -384,12 +412,25 @@ class SettingsPanel(QScrollArea):
 
     @staticmethod
     def _apply_editor_width_defaults(parent: QWidget) -> None:
+        for label in parent.findChildren(QLabel):
+            label.setWordWrap(True)
+            label.setMinimumWidth(0)
+            if label.objectName() != "settingsHelpText":
+                label.setMaximumWidth(150)
         for spin in parent.findChildren(QSpinBox):
             spin.setMinimumWidth(max(spin.minimumWidth(), 116))
+            spin.setMaximumWidth(150)
         for dspin in parent.findChildren(QDoubleSpinBox):
             dspin.setMinimumWidth(max(dspin.minimumWidth(), 116))
+            dspin.setMaximumWidth(150)
         for combo in parent.findChildren(QComboBox):
             combo.setMinimumWidth(max(combo.minimumWidth(), 132))
+            combo.setMaximumWidth(170)
+            combo.setMinimumContentsLength(8)
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        for checkbox in parent.findChildren(QCheckBox):
+            checkbox.setMinimumWidth(0)
+            checkbox.setMaximumWidth(220)
 
     def _bind_float(self, widget: QDoubleSpinBox, group_name: str, field_name: str) -> None:
         widget.valueChanged.connect(
@@ -414,6 +455,9 @@ class SettingsPanel(QScrollArea):
         vbox.setSpacing(6)
 
         help_text = self.GROUP_HELP.get(spec.title, "")
+        group_title = QLabel(spec.title, page)
+        group_title.setObjectName("settingsEditorTitle")
+        vbox.addWidget(group_title)
         if help_text:
             help_label = QLabel(help_text, page)
             help_label.setObjectName("settingsHelpText")
@@ -433,7 +477,7 @@ class SettingsPanel(QScrollArea):
         form.setSpacing(5)
         form.setHorizontalSpacing(8)
         form.setVerticalSpacing(5)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
@@ -447,10 +491,9 @@ class SettingsPanel(QScrollArea):
         return page, controls_widget, lock_label
 
     def _set_lock_label_message(self, lock_label: QLabel, *, lock_kind: str, reason: str) -> None:
-        kind = lock_kind if lock_kind in self._LOCK_THEME else "mode"
+        kind = lock_kind if lock_kind in self._LOCK_THEME else "alpha"
         fg, bg, border = self._LOCK_THEME[kind]
         heading = {
-            "mode": "Mode",
             "alpha": "Transparency",
             "gif": "GIF",
         }.get(kind, "Settings")
@@ -522,11 +565,6 @@ class SettingsPanel(QScrollArea):
             self._syncing_resize_dpi = False
         self._last_resize_percent_for_dpi_sync = float(self._resize_percent.value())
 
-    def _on_mode_changed(self, mode_value: str) -> None:
-        self._current_mode = mode_value
-        self._apply_filters()
-        self._refresh_header_summary()
-
     def _on_active_asset_changed(self, asset: object) -> None:
         if asset is None:
             self._asset_has_alpha = False
@@ -545,29 +583,16 @@ class SettingsPanel(QScrollArea):
         self._refresh_background_status(asset)
 
     def _apply_filters(self) -> None:
-        query = self._search.text().strip().lower()
         visible_count = 0
         first_visible_index: int | None = None
         current_index = int(self._toolbox.currentIndex()) if self._toolbox.count() > 0 else -1
         current_still_visible = False
         for idx in range(self._toolbox.count()):
             spec = self._group_specs_by_index[idx]
-            matches_query = (not query) or (query in spec.title.lower())
-            meets_mode = MODE_ORDER[self._current_mode] >= MODE_ORDER[spec.min_mode]
-            format_ok = True
-            if spec.requires_alpha and not self._asset_has_alpha:
-                format_ok = False
-            if spec.requires_gif and not self._asset_is_gif:
-                format_ok = False
 
             reason = ""
             lock_kind = ""
-            if not matches_query:
-                reason = f"Hidden by section filter: {query!r}"
-            elif not meets_mode:
-                reason = f"Requires {spec.min_mode.title()} mode."
-                lock_kind = "mode"
-            elif spec.requires_alpha and not self._asset_has_alpha:
+            if spec.requires_alpha and not self._asset_has_alpha:
                 reason = "Requires an image with transparency (alpha channel)."
                 lock_kind = "alpha"
             elif spec.requires_gif and not self._asset_is_gif:
@@ -577,12 +602,8 @@ class SettingsPanel(QScrollArea):
             controls_widget = self._group_controls_by_index.get(idx)
             lock_label = self._group_lock_labels_by_index.get(idx)
 
-            self._toolbox.setItemVisible(idx, bool(matches_query))
-            self._toolbox.setItemEnabled(idx, bool(matches_query))
-
-            if not matches_query:
-                self._toolbox.setItemToolTip(idx, "")
-                continue
+            self._toolbox.setItemVisible(idx, True)
+            self._toolbox.setItemEnabled(idx, True)
 
             visible_count += 1
             if first_visible_index is None:
@@ -604,12 +625,6 @@ class SettingsPanel(QScrollArea):
         if (not current_still_visible) and first_visible_index is not None:
             self._toolbox.setCurrentIndex(first_visible_index)
 
-        if query:
-            self._filter_hint.setText(f"Showing {visible_count} matching section(s) for {query!r}.")
-            self._filter_hint.setVisible(True)
-        else:
-            self._filter_hint.setText("")
-            self._filter_hint.setVisible(False)
         self._visible_group_count = visible_count
         self._refresh_header_summary()
 
@@ -973,21 +988,7 @@ class SettingsPanel(QScrollArea):
             self._update_setting("pixel", "scale_method", value)
 
     def _on_toolbox_index_changed(self, _index: int) -> None:
-        self._queue_scroll_to_active_group()
         self._refresh_header_summary()
-
-    def _queue_scroll_to_active_group(self) -> None:
-        QTimer.singleShot(0, self._scroll_to_active_group)
-
-    def _scroll_to_active_group(self) -> None:
-        container = self.widget()
-        current_index = int(self._toolbox.currentIndex()) if self._toolbox.count() > 0 else -1
-        if container is None or current_index < 0:
-            return
-        scroll_bar = self.verticalScrollBar()
-        target_point = self._toolbox.mapTo(container, QPoint(0, 0))
-        target_value = max(0, int(target_point.y()) - 8)
-        scroll_bar.setValue(min(scroll_bar.maximum(), target_value))
 
     def _refresh_header_summary(self) -> None:
         if self._header_title is None:
@@ -999,7 +1000,6 @@ class SettingsPanel(QScrollArea):
 
         state = build_settings_panel_header_state(
             asset=(self._ui_state.active_asset if self._ui_state is not None else None),
-            mode_value=self._current_mode,
             visible_group_count=self._visible_group_count,
             total_group_count=self._toolbox.count(),
             active_group_title=active_group_title,

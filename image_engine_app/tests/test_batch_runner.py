@@ -25,11 +25,6 @@ from image_engine_app.engine.models import (  # noqa: E402
     QueueItemStatus,
     SourceType,
 )
-from image_engine_app.engine.process.performance_backend import (  # noqa: E402
-    PerformanceAvailability,
-    PerformanceBackend,
-    PerformanceModeResolution,
-)
 
 
 def _pillow_available() -> bool:
@@ -66,7 +61,7 @@ def _make_asset(
         dimensions_current=dims,
         dimensions_final=dims,
     )
-    asset.edit_state.mode = EditMode.SIMPLE
+    asset.edit_state.mode = EditMode.ADVANCED
     asset.edit_state.apply_target = ApplyTarget.CURRENT
     asset.edit_state.sync_current_final = False
     asset.edit_state.settings.export.export_profile = ExportProfile.APP_ASSET if has_alpha else ExportProfile.WEB
@@ -120,16 +115,6 @@ def _write_source_fixture(path: Path, *, fmt: AssetFormat, animated: bool = Fals
         raise AssertionError(f"Unsupported fixture format: {fmt}")
 
 
-class _RecordingPerformanceBackend(PerformanceBackend):
-    def __init__(self, *, availability: PerformanceAvailability) -> None:
-        super().__init__(availability=availability)
-        self.calls: list[tuple[str, str]] = []
-
-    def run_heavy_job(self, job: HeavyJobSpec, *, requested_mode: str) -> PerformanceModeResolution:
-        self.calls.append((job.id, requested_mode))
-        return super().run_heavy_job(job, requested_mode=requested_mode)
-
-
 class BatchRunnerTests(unittest.TestCase):
     def test_batch_runner_sequential_auto_preset_heavy_and_export(self) -> None:
         pixel_asset = _make_asset(
@@ -151,12 +136,12 @@ class BatchRunnerTests(unittest.TestCase):
             has_alpha=False,
         )
 
-        # Simple mode clamp should cap brightness at 0.25.
+        # Baseline clamp should cap brightness at 0.5.
         pixel_preset = PresetModel(
             name="Pixel Batch Boost",
             description="Boost pixel assets in batch",
             settings_delta={"color": {"brightness": 0.9}, "cleanup": {"denoise": 0.3}},
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
         )
 
         config = BatchRunnerConfig(
@@ -185,7 +170,7 @@ class BatchRunnerTests(unittest.TestCase):
 
             # Classification + auto preset applied to the sprite item.
             self.assertIn("pixel_art", pixel_asset.classification_tags)
-            self.assertEqual(pixel_asset.edit_state.settings.color.brightness, 0.25)
+            self.assertEqual(pixel_asset.edit_state.settings.color.brightness, 0.5)
             self.assertEqual(pixel_asset.edit_state.settings.cleanup.denoise, 0.3)
             self.assertEqual(report.items[0].applied_preset_names, ["Pixel Batch Boost"])
             self.assertEqual(report.items[1].applied_preset_names, [])
@@ -206,40 +191,6 @@ class BatchRunnerTests(unittest.TestCase):
             self.assertEqual(report.items[1].queue_item.status, QueueItemStatus.DONE)
             self.assertEqual(report.items[0].queue_item.progress, 1.0)
             self.assertEqual(report.items[1].queue_item.progress, 1.0)
-
-    def test_batch_runner_uses_configured_performance_mode_for_heavy_jobs(self) -> None:
-        asset = _make_asset(
-            asset_id="asset-heavy-1",
-            name="heavy-source.png",
-            fmt=AssetFormat.PNG,
-            dims=(128, 128),
-            has_alpha=True,
-        )
-        asset.edit_state.queued_heavy_jobs = [
-            HeavyJobSpec(id="job-heavy-1", tool=HeavyTool.AI_UPSCALE, params={"factor": 2})
-        ]
-        backend = _RecordingPerformanceBackend(
-            availability=PerformanceAvailability(
-                cpu_available=True,
-                gpu_available=True,
-                gpu_backend_label="Fake GPU",
-                gpu_disabled_reason=None,
-            )
-        )
-        runner = BatchRunner(
-            BatchRunnerConfig(
-                preview_skip_mode=True,
-                auto_export=False,
-                performance_mode="gpu",
-            ),
-            performance_backend=backend,
-        )
-
-        report = runner.run([BatchWorkItem(asset=asset, queue_item=_make_queue(asset, 20))])
-
-        self.assertEqual(report.processed_count, 1)
-        self.assertEqual(backend.calls, [("job-heavy-1", "gpu")])
-        self.assertEqual(asset.edit_state.queued_heavy_jobs[0].status, HeavyJobStatus.DONE)
 
     @unittest.skipUnless(_pillow_available(), "Pillow required for batch heavy render test.")
     def test_batch_runner_heavy_jobs_render_into_batch_cache(self) -> None:
@@ -437,7 +388,7 @@ class BatchRunnerTests(unittest.TestCase):
             applies_to_formats=["jpg"],
             applies_to_tags=["photo"],
             settings_delta={"cleanup": {"denoise": 0.45}},
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
         )
         gif_safe = PresetModel(
             name="GIF Safe Batch",
@@ -448,7 +399,7 @@ class BatchRunnerTests(unittest.TestCase):
                 "cleanup": {"artifact_removal": 0.14},
                 "export": {"format": ExportFormat.GIF.value, "palette_limit": 256},
             },
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
         )
 
         runner = BatchRunner(

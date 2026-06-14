@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 
 def build_app_stylesheet() -> str:
     """Return the shared stylesheet used across the desktop shell."""
+
+    chevron_down = Path(__file__).with_name("chevron_down.svg").as_posix()
 
     return """
     QMainWindow#imageEngineMainWindow,
@@ -15,34 +19,35 @@ def build_app_stylesheet() -> str:
         color: #2b383d;
     }
     QWidget {
+        font-family: "Segoe UI", "Arial", sans-serif;
         color: #2b383d;
         selection-background-color: #e6ece8;
         selection-color: #243237;
     }
     QToolBar#shellTopToolbar {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #f8f1e8, stop:0.42 #f6f2eb, stop:1 #edf0ed);
+        background: #f7f4ee;
         border: none;
-        border-bottom: 1px solid #cfd4cf;
-        spacing: 5px;
-        padding: 6px 10px;
+        border-bottom: 1px solid #cfd8d4;
+        spacing: 3px;
+        padding: 4px 8px;
     }
     QToolBar#shellTopToolbar::separator {
         background: #d0d6d2;
         width: 1px;
-        margin: 6px 6px;
+        margin: 5px 5px;
     }
     QFrame#toolbarBrandLockup {
         border: 1px solid #ced4cf;
-        border-radius: 16px;
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #fbf8f2, stop:0.55 #f6f4ef, stop:1 #eef2f0);
+        border-radius: 8px;
+        background: #fbfaf6;
     }
     QLabel#toolbarBrandMark {
         border: 1px solid #94b8ba;
-        border-radius: 14px;
+        border-radius: 12px;
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7aaeb1, stop:1 #4b8b90);
         color: #ffffff;
         font-weight: 800;
-        font-size: 11px;
+        font-size: 10px;
     }
     QLabel#toolbarBrandTitle {
         background: transparent;
@@ -53,7 +58,7 @@ def build_app_stylesheet() -> str:
     QLabel#toolbarBrandSubtitle {
         background: transparent;
         color: #7a807b;
-        font-size: 9px;
+        font-size: 8px;
         font-weight: 600;
     }
     QLabel#toolbarLabel {
@@ -68,17 +73,17 @@ def build_app_stylesheet() -> str:
         border-radius: 10px;
         background: #faf8f3;
         color: #365159;
-        padding: 3px 8px;
+        padding: 2px 7px;
         font-size: 9px;
         font-weight: 700;
     }
     QToolButton#toolbarMenuButton,
     QToolBar#shellTopToolbar QToolButton {
-        min-height: 22px;
-        padding: 2px 8px;
+        min-height: 20px;
+        padding: 2px 7px;
         border: 1px solid #d2d7d2;
-        border-radius: 10px;
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #fbf9f4, stop:1 #f3f0ea);
+        border-radius: 7px;
+        background: #fbfaf6;
         color: #273840;
         font-weight: 600;
         font-size: 10px;
@@ -99,29 +104,67 @@ def build_app_stylesheet() -> str:
         border-color: #a9bbb5;
         color: #425b5a;
     }
-    QComboBox#toolbarModeCombo,
     QToolBar#shellTopToolbar QComboBox {
-        min-height: 22px;
-        padding: 2px 8px;
+        min-height: 20px;
+        padding: 2px 24px 2px 8px;
         border: 1px solid #d2d7d2;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #fbf9f4;
         color: #273840;
         font-size: 10px;
     }
     QToolBar#shellTopToolbar QComboBox::drop-down {
-        border: none;
-        width: 18px;
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        border-left: 1px solid #d3dbd6;
+        border-top-right-radius: 7px;
+        border-bottom-right-radius: 7px;
+        background: #eef4f1;
+        width: 20px;
+    }
+    QToolBar#shellTopToolbar QComboBox::down-arrow {
+        image: url("__CHEVRON_DOWN__");
+        width: 10px;
+        height: 7px;
     }
     QToolButton#toolbarMenuButton::menu-indicator {
         width: 8px;
+    }
+    QFrame#shellPageRail {
+        border: 1px solid #d4d8d3;
+        border-radius: 14px;
+        background: #fbfaf7;
+    }
+    QToolButton#shellPageRailButton {
+        min-width: 60px;
+        min-height: 62px;
+        padding: 4px 2px;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        background: transparent;
+        color: #617174;
+        font-size: 8px;
+        font-weight: 800;
+    }
+    QToolButton#shellPageRailButton:hover {
+        background: #fbfaf6;
+        border-color: #d3dbd6;
+    }
+    QToolButton#shellPageRailButton:checked {
+        background: #eaf2ef;
+        border-color: #a7c2ba;
+        color: #315e58;
+    }
+    QStackedWidget#shellPageStack {
+        background: transparent;
+        border: none;
     }
     QFrame#workspaceRailShell,
     QFrame#workspaceEditorShell,
     QFrame#workspaceInspectorShell {
         border: 1px solid #d4d8d3;
-        border-radius: 22px;
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f9f5ef, stop:0.5 #f5f1ea, stop:1 #eef1ed);
+        border-radius: 14px;
+        background: #fbfaf7;
     }
     QFrame#workspacePreviewStage,
     QFrame#workspaceActionShelf {
@@ -138,7 +181,7 @@ def build_app_stylesheet() -> str:
         min-height: 20px;
         padding: 2px 8px;
         border: 1px solid #d1d7d2;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #faf8f3;
         color: #273840;
         font-size: 10px;
@@ -162,7 +205,7 @@ def build_app_stylesheet() -> str:
     QPushButton#shellPrimaryAction {
         background: #4a8f93;
         border: 1px solid #3c7e82;
-        border-radius: 10px;
+        border-radius: 7px;
         color: #ffffff;
         font-weight: 700;
     }
@@ -185,11 +228,14 @@ def build_app_stylesheet() -> str:
     QDoubleSpinBox {
         min-height: 20px;
         border: 1px solid #d1d7d2;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #fbf9f4;
         color: #26353b;
         padding: 2px 8px;
         font-size: 10px;
+    }
+    QComboBox {
+        padding-right: 26px;
     }
     QLineEdit:focus,
     QComboBox:focus,
@@ -199,8 +245,21 @@ def build_app_stylesheet() -> str:
         background: #fffefc;
     }
     QComboBox::drop-down {
-        border: none;
-        width: 18px;
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        border-left: 1px solid #d3dbd6;
+        border-top-right-radius: 7px;
+        border-bottom-right-radius: 7px;
+        background: #eef4f1;
+        width: 22px;
+    }
+    QComboBox::down-arrow {
+        image: url("__CHEVRON_DOWN__");
+        width: 10px;
+        height: 7px;
+    }
+    QComboBox::drop-down:hover {
+        background: #e5efeb;
     }
     QTabWidget::pane {
         border: none;
@@ -248,34 +307,47 @@ def build_app_stylesheet() -> str:
         background: transparent;
         border: none;
     }
-    QWidget#settingsGroupNavRail {
+    QFrame#settingsGroupPickerCard {
+        border: 1px solid #d8ddd8;
+        border-radius: 12px;
+        background: #fffdfa;
+    }
+    QLabel#settingsPickerTitle {
+        background: transparent;
+        color: #405158;
+        font-size: 10px;
+        font-weight: 800;
+    }
+    QWidget#settingsGroupTileGrid {
         background: transparent;
     }
-    QPushButton#settingsGroupNavButton {
-        min-height: 30px;
-        padding: 5px 14px;
-        border: 1px solid #ccd4ce;
-        border-radius: 13px;
-        background: #f6f1ea;
-        color: #304047;
-        font-size: 10px;
+    QToolButton#settingsGroupNavButton {
+        min-width: 84px;
+        max-width: 84px;
+        min-height: 76px;
+        max-height: 76px;
+        padding: 5px 3px;
+        border: 1px solid #dfe4df;
+        border-radius: 12px;
+        background: #fbfaf7;
+        color: #283840;
+        font-size: 8px;
         font-weight: 700;
-        text-align: left;
     }
-    QPushButton#settingsGroupNavButton:hover {
-        background: #faf6f0;
-        border-color: #bcc8c1;
+    QToolButton#settingsGroupNavButton:hover {
+        background: #f6faf8;
+        border-color: #c9d8d3;
     }
-    QPushButton#settingsGroupNavButton:pressed {
-        background: #ede7dd;
-        border-color: #aebbb4;
+    QToolButton#settingsGroupNavButton:pressed {
+        background: #edf4f1;
+        border-color: #aebfb9;
     }
-    QPushButton#settingsGroupNavButton:checked {
-        background: #edf2ee;
-        border-color: #b3c4bc;
-        color: #305851;
+    QToolButton#settingsGroupNavButton:checked {
+        background: #eaf5f1;
+        border: 1px solid #4a9a92;
+        color: #24574f;
     }
-    QPushButton#settingsGroupNavButton:disabled {
+    QToolButton#settingsGroupNavButton:disabled {
         background: #f1ede7;
         border-color: #d7ddd8;
         color: #90a0a0;
@@ -299,7 +371,7 @@ def build_app_stylesheet() -> str:
     QTextBrowser#shellGuideBrowser,
     QLabel#shellInsetCard {
         border: 1px solid #d3d8d3;
-        border-radius: 14px;
+        border-radius: 8px;
         background: #faf8f4;
         padding: 8px;
     }
@@ -308,12 +380,12 @@ def build_app_stylesheet() -> str:
     }
     QFrame#presetManagerCard {
         border: 1px solid #d3d8d3;
-        border-radius: 18px;
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #faf8f4, stop:0.55 #f5f1ea, stop:1 #eef1ed);
+        border-radius: 8px;
+        background: #fbfaf6;
     }
     QDialog#presetManagerDialog QPlainTextEdit {
         border: 1px solid #d1d7d2;
-        border-radius: 12px;
+        border-radius: 7px;
         background: #fbf9f4;
         color: #26353b;
         padding: 8px;
@@ -321,13 +393,53 @@ def build_app_stylesheet() -> str:
     }
     QListWidget#workspaceAssetList {
         border: 1px solid #d3d8d3;
-        border-radius: 14px;
+        border-radius: 8px;
         background: #faf8f4;
         padding: 6px;
     }
+    QLabel#workspaceEmptyImportCard {
+        border: 1px dashed #d8dedb;
+        border-radius: 8px;
+        background: #fbfaf7;
+        color: #7c8b8d;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 12px;
+    }
+    QComboBox#workspaceSectionCombo {
+        min-height: 22px;
+        max-height: 22px;
+        border-radius: 8px;
+        padding: 1px 24px 1px 8px;
+        font-size: 10px;
+        background: #fffdfa;
+        border: 1px solid #d1d8d2;
+    }
+    QToolButton#workspacePagerButton {
+        min-width: 24px;
+        max-width: 24px;
+        min-height: 24px;
+        max-height: 24px;
+        padding: 0;
+        border: 1px solid #d1d8d2;
+        border-radius: 8px;
+        background: #fffdfa;
+        color: #38555c;
+        font-size: 15px;
+        font-weight: 800;
+    }
+    QToolButton#workspacePagerButton:hover {
+        background: #f5faf7;
+        border-color: #abc1ba;
+    }
+    QToolButton#workspacePagerButton:disabled {
+        background: #f5f2ec;
+        border-color: #e0ddd7;
+        color: #b5bfbd;
+    }
     QListWidget#workspaceAssetList::item {
         border: 1px solid transparent;
-        border-radius: 10px;
+        border-radius: 7px;
         padding: 6px 8px;
         margin: 1px 0;
         color: #1b3d43;
@@ -341,20 +453,77 @@ def build_app_stylesheet() -> str:
         border-color: #b6c5bf;
         color: #26353b;
     }
+    QWidget#settingsPanelViewport {
+        background: transparent;
+    }
     QFrame#workspaceAssetTabsCard,
     QFrame#workspaceExportCard,
     QFrame#webSourcesCard,
+    QFrame#webSourcesSectionCard,
     QFrame#settingsHeaderCard,
     QFrame#controlStripRoot,
     QFrame#shellGuideCard {
         border: 1px solid #d3d8d3;
-        border-radius: 18px;
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #faf8f4, stop:0.55 #f5f1ea, stop:1 #eef1ed);
+        border-radius: 12px;
+        background: #fffdfa;
+    }
+    QFrame#webSourcesSectionCard {
+        background: #fbfaf7;
+        border-color: #d5dcd5;
+    }
+    QFrame#webSourcesSectionCard QLabel#shellTitle {
+        font-size: 10px;
+        font-weight: 800;
+        color: #213940;
+    }
+    QFrame#webSourcesSectionCard QLabel#shellHint {
+        font-size: 9px;
+        color: #65777c;
+    }
+    QFrame#webSourcesSectionCard QLineEdit,
+    QFrame#webSourcesSectionCard QComboBox {
+        min-height: 24px;
+        max-height: 24px;
+        border-radius: 8px;
+        background: #fffdfa;
+        border: 1px solid #d1d8d2;
+    }
+    QFrame#webSourcesSectionCard QPushButton,
+    QFrame#webSourcesSectionCard QToolButton {
+        min-height: 24px;
+        max-height: 24px;
+        border-radius: 8px;
+        padding: 2px 10px;
+        background: #fffdfa;
+        border: 1px solid #d1d8d2;
+        font-size: 10px;
+        font-weight: 600;
+    }
+    QFrame#webSourcesSectionCard QPushButton:hover,
+    QFrame#webSourcesSectionCard QToolButton:hover {
+        background: #f5faf7;
+        border-color: #abc1ba;
+    }
+    QPushButton#webSourcesPrimaryAction {
+        background: #e8f3ef;
+        border-color: #9dbab2;
+        color: #285d5b;
+        font-weight: 800;
+    }
+    QListWidget#webSourcesIndexList,
+    QListWidget#webSourcesResultsList,
+    QPlainTextEdit#webSourcesManualList {
+        border: 1px solid #d2d9d3;
+        border-radius: 9px;
+        background: #fffdfa;
+        padding: 5px;
+        color: #243940;
+        font-size: 10px;
     }
     QFrame#previewPanelFrame {
         border: 1px solid #cfd8d4;
-        border-radius: 18px;
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #fffefd, stop:0.55 #fbfaf7, stop:1 #f5f8f8);
+        border-radius: 14px;
+        background: #fffefd;
     }
     QLabel#shellTitle {
         background: transparent;
@@ -367,10 +536,6 @@ def build_app_stylesheet() -> str:
         background: transparent;
         color: #6f7c81;
         font-size: 10px;
-    }
-    QWidget#toolbarPresetStrip {
-        background: transparent;
-        border: none;
     }
     QLabel#shellBadge {
         border: 1px solid #d1d7d2;
@@ -401,8 +566,8 @@ def build_app_stylesheet() -> str:
     }
     QLabel#exportSizeBadge {
         border: 1px solid #c5d0cb;
-        border-radius: 12px;
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f5f2ed, stop:1 #ecefe9);
+        border-radius: 7px;
+        background: #f2f4ef;
         color: #5f7075;
         padding: 4px 12px;
         font-size: 9px;
@@ -413,7 +578,7 @@ def build_app_stylesheet() -> str:
         min-height: 22px;
         padding: 2px 10px;
         border: 1px solid #c2cdc8;
-        border-radius: 12px;
+        border-radius: 7px;
         background: #f3efe8;
         color: #627277;
         font-weight: 700;
@@ -427,7 +592,7 @@ def build_app_stylesheet() -> str:
         min-height: 20px;
         padding: 2px 8px;
         border: 1px solid #d2d8d3;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #faf8f4;
         color: #5d6f75;
         font-size: 10px;
@@ -439,7 +604,7 @@ def build_app_stylesheet() -> str:
     QPushButton#settingsResetButton {
         min-height: 22px;
         padding: 3px 10px;
-        border-radius: 10px;
+        border-radius: 7px;
         font-size: 10px;
     }
     QToolButton {
@@ -447,8 +612,8 @@ def build_app_stylesheet() -> str:
     }
     QFrame#controlStripGroup {
         border: 1px solid #d8ddd8;
-        border-radius: 14px;
-        background: #f7f4ee;
+        border-radius: 8px;
+        background: #f8f6f1;
     }
     QLabel#controlStripEyebrow {
         color: #7a7f7b;
@@ -468,11 +633,15 @@ def build_app_stylesheet() -> str:
         letter-spacing: 0.05em;
     }
     QLabel#controlStripHeaderBadge {
-        border-radius: 999px;
+        min-width: 84px;
+        max-width: 84px;
+        min-height: 28px;
+        max-height: 28px;
+        border-radius: 7px;
         border: 1px solid #d2d8d3;
         background: #f3efe8;
         color: #55686e;
-        padding: 4px 10px;
+        padding: 2px 8px;
         font-size: 9px;
         font-weight: 700;
     }
@@ -508,7 +677,7 @@ def build_app_stylesheet() -> str:
         min-height: 22px;
         padding: 3px 8px;
         border: 1px solid #d1d7d2;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #faf8f3;
         color: #294047;
         font-weight: 600;
@@ -518,7 +687,7 @@ def build_app_stylesheet() -> str:
         min-height: 22px;
         padding: 3px 18px 3px 8px;
         border: 1px solid #d1d7d2;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #faf8f3;
         color: #294047;
         font-weight: 600;
@@ -534,7 +703,7 @@ def build_app_stylesheet() -> str:
         min-height: 22px;
         padding: 3px 10px;
         border: 1px solid #417d81;
-        border-radius: 10px;
+        border-radius: 7px;
         background: #4a8f93;
         color: #ffffff;
         font-weight: 700;
@@ -550,15 +719,27 @@ def build_app_stylesheet() -> str:
         subcontrol-position: right center;
         width: 10px;
     }
-    QWidget#settingsGroupPage,
+    QWidget#settingsGroupPage {
+        border: 1px solid #d8ddd8;
+        border-radius: 12px;
+        background: #fffdfa;
+    }
     QWidget#settingsGroupControls {
         background: transparent;
     }
-    QLabel#previewCanvas {
-        border: 1px dashed #9fb4af;
-        border-radius: 12px;
+    QLabel#settingsEditorTitle {
         background: transparent;
-        color: #5f7278;
+        color: #253840;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    QLabel#previewCanvas {
+        border: 1px dashed #bfcfca;
+        border-radius: 12px;
+        background: #fffefd;
+        color: #25343d;
+        font-size: 11px;
+        font-weight: 700;
     }
     QFrame#previewPaneContainer {
         background: transparent;
@@ -581,20 +762,10 @@ def build_app_stylesheet() -> str:
         color: #8b6748;
         background: #fcf0e4;
         border: 1px solid #dfc3a0;
-        border-radius: 10px;
+        border-radius: 7px;
         padding: 7px 10px;
     }
     QScrollArea {
         background: transparent;
     }
-    QSplitter#workspaceShellSplitter::handle:horizontal {
-        background: #cad3ce;
-        border-radius: 4px;
-        margin: 22px 0;
-    }
-    QSplitter#workspaceEditorSplitter::handle:vertical {
-        background: #cad3ce;
-        border-radius: 3px;
-        margin: 6px 0;
-    }
-    """
+    """.replace("__CHEVRON_DOWN__", chevron_down)

@@ -61,7 +61,7 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
         try:
             tabs.set_tabs([], active_asset_id=None, total_count=0, window_start=0, window_size=100)
             self.assertTrue(tabs._asset_list.isHidden())
-            self.assertIn("Import a file", tabs._summary_label.text())
+            self.assertIn("No assets", tabs._summary_label.text())
         finally:
             tabs.close()
             if owns_app and app is not None:
@@ -72,15 +72,21 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
 
         try:
             tabs.set_tabs(self._items(100), active_asset_id="asset-000", total_count=140, window_start=0, window_size=100)
-            self.assertTrue(tabs._window_prev_button.isHidden())
+            self.assertFalse(tabs._window_prev_button.isHidden())
+            self.assertFalse(tabs._window_prev_button.isEnabled())
             self.assertFalse(tabs._window_next_button.isHidden())
+            self.assertTrue(tabs._window_next_button.isEnabled())
             self.assertFalse(tabs._window_section_combo.isHidden())
+            self.assertEqual("1/2 (1-100)", tabs._window_section_combo.currentText())
             self.assertEqual(100, tabs._asset_list.count())
 
             tabs.set_tabs(self._items(40, start=100), active_asset_id="asset-120", total_count=140, window_start=100, window_size=100)
             self.assertFalse(tabs._window_prev_button.isHidden())
-            self.assertTrue(tabs._window_next_button.isHidden())
+            self.assertTrue(tabs._window_prev_button.isEnabled())
+            self.assertFalse(tabs._window_next_button.isHidden())
+            self.assertFalse(tabs._window_next_button.isEnabled())
             self.assertFalse(tabs._window_section_combo.isHidden())
+            self.assertEqual("2/2 (101-140)", tabs._window_section_combo.currentText())
             self.assertEqual(40, tabs._asset_list.count())
             self.assertEqual("asset-120", tabs.active_asset_id())
         finally:

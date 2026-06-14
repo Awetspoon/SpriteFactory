@@ -252,7 +252,7 @@ class ModelSerializationTests(unittest.TestCase):
             },
             uses_heavy_tools=False,
             requires_apply=False,
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
         )
         prediction = ExportPrediction(
             predicted_bytes=123456,

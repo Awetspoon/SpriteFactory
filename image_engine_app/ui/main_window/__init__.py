@@ -15,7 +15,6 @@ __all__ = [
     "ImageEngineMainWindow",
     "LocalImportCoordinator",
     "PreviewPanel",
-    "PresetsBar",
     "SessionCoordinator",
     "SettingsPanel",
     "ShellCoordinator",
@@ -36,7 +35,6 @@ _EXPORT_MODULES = {
     "ImageEngineMainWindow": "main_window",
     "LocalImportCoordinator": "local_import_coordinator",
     "PreviewPanel": "preview_panel",
-    "PresetsBar": "presets_bar",
     "SessionCoordinator": "session_coordinator",
     "SettingsPanel": "settings_panel",
     "ShellCoordinator": "shell_coordinator",
@@ -67,7 +65,6 @@ if TYPE_CHECKING:
     from .local_import_coordinator import LocalImportCoordinator
     from .main_window import ImageEngineMainWindow
     from .preview_panel import PreviewPanel
-    from .presets_bar import PresetsBar
     from .session_coordinator import SessionCoordinator
     from .settings_panel import SettingsPanel
     from .shell_coordinator import ShellCoordinator

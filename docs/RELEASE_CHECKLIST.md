@@ -20,12 +20,12 @@ Run the commands from the repository root.
 ## 4) Build one-file release (recommended)
 - [ ] `powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1`
 - [ ] Launch `.local\pyinstaller\dist\SpriteFactory.exe`
-- [ ] Confirm `.local\release\SpriteFactory-v1.2.0-win64.exe` exists
+- [ ] Confirm `.local\release\SpriteFactory-v1.2.1-win64.exe` exists
 
 ## 5) Build onedir package (optional)
 - [ ] `powershell -ExecutionPolicy Bypass -File .\build_exe.ps1`
 - [ ] Launch `.local\pyinstaller\dist\SpriteFactory\SpriteFactory.exe`
-- [ ] Confirm `.local\release\SpriteFactory-v1.2.0-win64-onedir.zip` exists
+- [ ] Confirm `.local\release\SpriteFactory-v1.2.1-win64-onedir.zip` exists
 
 ## 6) Smoke test packaged build
 - [ ] Import folder images
@@ -35,9 +35,9 @@ Run the commands from the repository root.
 - [ ] Export (confirm files written)
 
 ## 7) Clean machine test (recommended)
-- [ ] Copy `.local\release\SpriteFactory-v1.2.0-win64.exe` to a second PC without Python
+- [ ] Copy `.local\release\SpriteFactory-v1.2.1-win64.exe` to a second PC without Python
 - [ ] Run the EXE and repeat smoke test
 
 ## 8) Ship
-- [ ] Upload `.local\release\SpriteFactory-v1.2.0-win64.exe` to GitHub Releases
+- [ ] Upload `.local\release\SpriteFactory-v1.2.1-win64.exe` to GitHub Releases
 - [ ] Attach `README.md` and keep `docs/TROUBLESHOOTING.md` current for support

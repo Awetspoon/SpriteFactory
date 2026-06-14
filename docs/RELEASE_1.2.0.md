@@ -33,7 +33,7 @@
   - edit the JSON delta
   - save your own user preset
 
-## Performance Mode
+## Toolbar Cleanup
 
-- `CPU` / `GPU` is now wired honestly through the heavy-processing path.
-- If a real GPU backend is not available, the app cleanly falls back to CPU instead of pretending GPU is active.
+- Removed the old toolbar performance mode because the app's current processing path does not need a user-selectable backend.
+- Kept `FMT`, `Alpha`, and `Frames` as real active-asset readouts so users can quickly see format, transparency, and animation state.

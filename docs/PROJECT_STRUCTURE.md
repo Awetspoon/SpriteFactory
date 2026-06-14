@@ -30,8 +30,10 @@ These should not be treated as source structure and should stay out of version c
 
 - `.venv/`
 - `.local/`
+- `.cache/`
 - `build/`
 - `dist/`
+- `_runtime_data/`
 - legacy scratch folders like `_ui_check/`, `_ui_check_v3/`, and `_audit/`
 - Python `__pycache__/` folders
 
@@ -41,4 +43,5 @@ These should not be treated as source structure and should stay out of version c
 - `image_engine_v3` is still important because the active code and tests depend on it.
 - Imports should be package-qualified (`image_engine_app.*`, `image_engine_v3.*`) rather than relying on `PYTHONPATH=image_engine_app`.
 - `python -m image_engine_app` is the preferred development entrypoint; the repo-root `main.py` wrapper is compatibility sugar only.
+- Legacy repo-root `_runtime_data/` may still exist on a local machine, but it is not part of the intended source layout.
 - Historical review notes live under `docs/archive/` instead of cluttering the repository root.

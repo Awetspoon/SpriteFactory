@@ -10,11 +10,110 @@ import unittest
 
 from image_engine_app.app.paths import ensure_app_paths  # noqa: E402
 from image_engine_app.app.services.web_sources_service import WebSourcesService  # noqa: E402
-from image_engine_app.app.web_sources_models import Confidence, ImportTarget, SmartOptions, WebItem  # noqa: E402
+from image_engine_app.app.web_sources_models import Confidence, ImportTarget, ScanResults, SmartOptions, WebItem  # noqa: E402
 from image_engine_app.engine.models import AssetRecord, AssetFormat, SourceType  # noqa: E402
 
 
 class WebSourcesServiceTests(unittest.TestCase):
+    def test_discover_index_links_returns_same_site_category_pages(self) -> None:
+        html = """
+        <a href="/sprites/gen-1">HOME Sprites: Gen 1</a>
+        <a href="/sprites/gen-2#top">HOME Sprites: Gen 2</a>
+        <a href="https://other.example.com/sprites">Other Site</a>
+        <a href="/sprites/bulbasaur.png">Direct Image</a>
+        <a href="/sprites/gen-1">Duplicate</a>
+        """
+
+        def opener(_request, **_kwargs):  # noqa: ANN001
+            return SimpleNamespace(
+                headers={"Content-Type": "text/html; charset=utf-8"},
+                read=lambda: html.encode("utf-8"),
+                __enter__=lambda self: self,
+                __exit__=lambda *_args: False,
+            )
+
+        class _Response:
+            headers = {"Content-Type": "text/html; charset=utf-8"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return html.encode("utf-8")
+
+        service = WebSourcesService(
+            app_paths=None,
+            scan_webpage_images=lambda *_args, **_kwargs: None,
+            import_url_source=lambda *args, **kwargs: None,
+            build_web_asset_from_file=lambda **kwargs: None,
+        )
+
+        links = service.discover_index_links(
+            "https://example.com/index",
+            opener=lambda *_args, **_kwargs: _Response(),
+        )
+
+        self.assertEqual(
+            ["HOME Sprites: Gen 1", "HOME Sprites: Gen 2"],
+            [link.label for link in links],
+        )
+        self.assertEqual(
+            ["https://example.com/sprites/gen-1", "https://example.com/sprites/gen-2"],
+            [link.url for link in links],
+        )
+
+    def test_scan_pages_merges_and_dedupes_results(self) -> None:
+        service = WebSourcesService(
+            app_paths=None,
+            scan_webpage_images=lambda *_args, **_kwargs: None,
+            import_url_source=lambda *args, **kwargs: None,
+            build_web_asset_from_file=lambda **kwargs: None,
+        )
+
+        def scan_area(area_url, **_kwargs):  # noqa: ANN001
+            if str(area_url).endswith("one"):
+                return ScanResults(
+                    items=(
+                        WebItem(
+                            url="https://cdn.example.com/a.png",
+                            name="a.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page=str(area_url),
+                        ),
+                    ),
+                    filtered_count=1,
+                )
+            return ScanResults(
+                items=(
+                    WebItem(
+                        url="https://cdn.example.com/a.png",
+                        name="a.png",
+                        ext=".png",
+                        confidence=Confidence.DIRECT,
+                        source_page=str(area_url),
+                    ),
+                    WebItem(
+                        url="https://cdn.example.com/b.gif",
+                        name="b.gif",
+                        ext=".gif",
+                        confidence=Confidence.DIRECT,
+                        source_page=str(area_url),
+                    ),
+                ),
+                filtered_count=2,
+            )
+
+        service.scan_area = scan_area  # type: ignore[method-assign]
+
+        results = service.scan_pages(["https://example.com/one", "https://example.com/two"])
+
+        self.assertEqual(["a.png", "b.gif"], [item.name for item in results.items])
+        self.assertEqual(3, results.filtered_count)
+
     def test_resolve_download_url_prefers_file_specific_candidate_over_logo(self) -> None:
         def scan_webpage_images(_page_url, **_kwargs):  # noqa: ANN001
             return SimpleNamespace(

@@ -98,18 +98,16 @@ class ControlStrip(QFrame):
         self._background_button.setObjectName("controlStripMenuAction")
         self._background_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._background_button.setMenu(bg_menu)
-        self._background_button.setMinimumWidth(84)
+        self._background_button.setFixedSize(84, 28)
         header.addWidget(self._background_button, 0)
 
         self._target_badge.setObjectName("controlStripHeaderBadge")
-        self._target_badge.setMinimumWidth(82)
-        self._target_badge.setMinimumHeight(24)
+        self._target_badge.setFixedSize(84, 28)
         self._target_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self._target_badge, 0)
 
         self._queue_badge.setObjectName("controlStripHeaderBadge")
-        self._queue_badge.setMinimumWidth(84)
-        self._queue_badge.setMinimumHeight(24)
+        self._queue_badge.setFixedSize(84, 28)
         self._queue_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self._queue_badge, 0)
 

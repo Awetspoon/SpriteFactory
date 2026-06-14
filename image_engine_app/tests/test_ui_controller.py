@@ -34,11 +34,6 @@ from image_engine_app.engine.models import (  # noqa: E402
     ScaleMethod,
 )
 from image_engine_app.engine.process.presets_apply import PresetApplyError  # noqa: E402
-from image_engine_app.engine.process.performance_backend import (  # noqa: E402
-    PerformanceAvailability,
-    PerformanceBackend,
-    PerformanceModeResolution,
-)
 
 
 def _fake_png(width: int, height: int, *, payload: bytes = b"DATA") -> bytes:
@@ -102,7 +97,7 @@ class _FakeResponse:
         return None
 
 
-def _asset(*, mode: EditMode = EditMode.SIMPLE) -> AssetRecord:
+def _asset(*, mode: EditMode = EditMode.ADVANCED) -> AssetRecord:
     asset = AssetRecord(
         id="asset-ui-001",
         source_type=SourceType.FILE,
@@ -121,16 +116,6 @@ def _asset(*, mode: EditMode = EditMode.SIMPLE) -> AssetRecord:
     return asset
 
 
-class _RecordingPerformanceBackend(PerformanceBackend):
-    def __init__(self, *, availability: PerformanceAvailability) -> None:
-        super().__init__(availability=availability)
-        self.calls: list[tuple[str, str]] = []
-
-    def run_heavy_job(self, job: HeavyJobSpec, *, requested_mode: str) -> PerformanceModeResolution:
-        self.calls.append((job.id, requested_mode))
-        return super().run_heavy_job(job, requested_mode=requested_mode)
-
-
 class UIControllerTests(unittest.TestCase):
 
     def test_user_presets_load_upsert_delete(self) -> None:
@@ -147,7 +132,7 @@ class UIControllerTests(unittest.TestCase):
                         settings_delta={"cleanup": {"denoise": 0.12}},
                         uses_heavy_tools=False,
                         requires_apply=False,
-                        mode_min=EditMode.SIMPLE,
+                        mode_min=EditMode.ADVANCED,
                     )
                 ]
             )
@@ -164,7 +149,7 @@ class UIControllerTests(unittest.TestCase):
                     settings_delta={"detail": {"sharpen_amount": 0.25}},
                     uses_heavy_tools=False,
                     requires_apply=False,
-                    mode_min=EditMode.SIMPLE,
+                    mode_min=EditMode.ADVANCED,
                 )
             )
             self.assertEqual(controller.get_preset("User A").description, "updated")
@@ -671,14 +656,14 @@ class UIControllerTests(unittest.TestCase):
 
     def test_apply_named_preset_clamps_and_queues_heavy_job(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
 
         summary = controller.apply_named_preset(asset, "Pixel Clean Upscale")
 
         self.assertEqual(summary.preset_name, "Pixel Clean Upscale")
         self.assertTrue(summary.requires_apply)
         self.assertEqual(summary.queued_heavy_jobs, 1)
-        self.assertEqual(asset.edit_state.settings.ai.upscale_factor, 2.0)  # simple-mode clamp
+        self.assertEqual(asset.edit_state.settings.ai.upscale_factor, 4.0)  # advanced-mode clamp
         self.assertEqual(asset.edit_state.settings.export.export_profile.value, "app_asset")
         self.assertEqual(asset.edit_state.settings.export.format.value, "png")
         self.assertEqual(asset.edit_state.queued_heavy_jobs[0].tool, HeavyTool.AI_UPSCALE)
@@ -725,7 +710,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_detected_baseline_preset_skips_incompatible_animated_gif_suggestion(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.original_name = "battle_anim.gif"
         asset.format = AssetFormat.GIF
         asset.capabilities = Capabilities(has_alpha=True, is_animated=True, is_sheet=False, is_ico_bundle=False)
@@ -786,43 +771,6 @@ class UIControllerTests(unittest.TestCase):
 
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0].status, HeavyJobStatus.DONE)
-        self.assertEqual(asset.edit_state.queued_heavy_jobs[0].status, HeavyJobStatus.DONE)
-
-    def test_set_performance_mode_falls_back_to_cpu_when_gpu_is_unavailable(self) -> None:
-        backend = _RecordingPerformanceBackend(
-            availability=PerformanceAvailability(
-                cpu_available=True,
-                gpu_available=False,
-                gpu_backend_label=None,
-                gpu_disabled_reason="GPU backend not installed",
-            )
-        )
-        controller = ImageEngineUIController(performance_backend=backend)
-
-        resolution = controller.set_performance_mode("gpu")
-
-        self.assertEqual(resolution.requested_mode, "gpu")
-        self.assertEqual(resolution.effective_mode, "cpu")
-        self.assertEqual(controller.performance_mode, "cpu")
-
-    def test_apply_heavy_queue_uses_selected_performance_mode(self) -> None:
-        backend = _RecordingPerformanceBackend(
-            availability=PerformanceAvailability(
-                cpu_available=True,
-                gpu_available=True,
-                gpu_backend_label="Fake GPU",
-                gpu_disabled_reason=None,
-            )
-        )
-        controller = ImageEngineUIController(performance_backend=backend)
-        asset = _asset(mode=EditMode.ADVANCED)
-        controller.apply_named_preset(asset, "Pixel Clean Upscale")
-        controller.set_performance_mode("gpu")
-
-        completed = controller.apply_heavy_queue(asset)
-
-        self.assertEqual(len(completed), 1)
-        self.assertEqual(backend.calls, [(asset.edit_state.queued_heavy_jobs[0].id, "gpu")])
         self.assertEqual(asset.edit_state.queued_heavy_jobs[0].status, HeavyJobStatus.DONE)
 
     @unittest.skipUnless(_pillow_available(), "Pillow required for heavy queue render test.")
@@ -1020,7 +968,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_select_export_source_prefers_cache_for_auto_animated_asset(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.capabilities = Capabilities(has_alpha=True, is_animated=True, is_sheet=False, is_ico_bundle=False)
         asset.cache_path = "C:/cache/source_anim.gif"
         asset.derived_final_path = "C:/cache/final_preview.png"
@@ -1032,7 +980,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_select_export_source_falls_back_to_source_uri(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.cache_path = None
         asset.derived_final_path = None
         asset.source_uri = "C:/assets/source_only.png"
@@ -1043,7 +991,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_select_export_source_prefers_derived_current_when_final_missing(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.derived_final_path = None
         asset.derived_current_path = "C:/cache/current_preview.png"
         asset.cache_path = "C:/cache/original.png"
@@ -1077,7 +1025,7 @@ class UIControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             controller = ImageEngineUIController(app_paths=paths)
-            a1 = _asset(mode=EditMode.SIMPLE)
+            a1 = _asset(mode=EditMode.ADVANCED)
             a1.id = "batch-a1"
             a1.original_name = "enemy_sprite.png"
             a1.dimensions_original = (64, 64)
@@ -1111,7 +1059,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_run_batch_via_controller_supports_cancel_callback(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.id = "batch-cancel-1"
 
         events: list[object] = []
@@ -1131,7 +1079,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_apply_named_preset_auto_upgrades_mode_when_required(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.original_name = "portrait.jpg"
         asset.format = AssetFormat.JPG
         asset.capabilities = Capabilities(has_alpha=False, is_animated=False, is_sheet=False, is_ico_bundle=False)
@@ -1158,7 +1106,7 @@ class UIControllerTests(unittest.TestCase):
             self.assertIn("pixel_art", set(asset.classification_tags))
             self.assertGreater(len(asset.recommendations.suggested_presets), 0)
             self.assertIn("Pixel Clean Upscale", [item.preset_name for item in asset.recommendations.suggested_presets])
-            self.assertEqual(asset.edit_state.settings.ai.upscale_factor, 2.0)
+            self.assertEqual(asset.edit_state.settings.ai.upscale_factor, 4.0)
             self.assertEqual(asset.edit_state.settings.export.export_profile, ExportProfile.APP_ASSET)
             self.assertEqual(asset.edit_state.settings.pixel.scale_method, ScaleMethod.NEAREST)
             self.assertTrue(asset.edit_state.settings.pixel.pixel_snap)
@@ -1168,7 +1116,7 @@ class UIControllerTests(unittest.TestCase):
 
     def test_analysis_inference_clamps_and_prefills_controls(self) -> None:
         controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.SIMPLE)
+        asset = _asset(mode=EditMode.ADVANCED)
         asset.classification_tags = ["pixel_art"]
         asset.analysis = AnalysisSummary(
             blur_score=0.76,
@@ -1187,7 +1135,7 @@ class UIControllerTests(unittest.TestCase):
         self.assertGreater(asset.edit_state.settings.cleanup.denoise, 0.0)
         self.assertGreater(asset.edit_state.settings.cleanup.artifact_removal, 0.0)
         self.assertGreater(asset.edit_state.settings.detail.sharpen_amount, 0.0)
-        self.assertLessEqual(asset.edit_state.settings.ai.upscale_factor, 2.0)
+        self.assertLessEqual(asset.edit_state.settings.ai.upscale_factor, 4.0)
         self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
 
     def test_upsert_user_preset_rejects_invalid_settings_delta(self) -> None:
@@ -1202,7 +1150,7 @@ class UIControllerTests(unittest.TestCase):
                     settings_delta={"not_a_real_group": {"value": 1}},
                     uses_heavy_tools=False,
                     requires_apply=False,
-                    mode_min=EditMode.SIMPLE,
+                    mode_min=EditMode.ADVANCED,
                 )
             )
 

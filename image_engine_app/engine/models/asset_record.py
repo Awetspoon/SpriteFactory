@@ -31,9 +31,20 @@ class AssetFormat(str, Enum):
 
 
 class EditMode(str, Enum):
-    SIMPLE = "simple"
     ADVANCED = "advanced"
     EXPERT = "expert"
+
+
+def normalize_edit_mode(raw_value: object) -> EditMode:
+    """Normalize current and legacy edit-mode values to supported modes."""
+
+    if isinstance(raw_value, EditMode):
+        return raw_value
+
+    normalized = str(raw_value or "").strip().lower()
+    if normalized == EditMode.EXPERT.value:
+        return EditMode.EXPERT
+    return EditMode.ADVANCED
 
 
 class ApplyTarget(str, Enum):
@@ -265,7 +276,7 @@ class HeavyJobSpec(SerializableDataclass):
 
 @dataclass
 class EditState(SerializableDataclass):
-    mode: EditMode = EditMode.SIMPLE
+    mode: EditMode = EditMode.ADVANCED
     sync_current_final: bool = True
     apply_target: ApplyTarget = ApplyTarget.BOTH
     auto_apply_light: bool = True

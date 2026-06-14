@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QFrame,
     QFormLayout,
@@ -37,7 +36,7 @@ class _PresetDraft:
     settings_delta_text: str = "{}"
     uses_heavy_tools: bool = False
     requires_apply: bool = False
-    mode_min: str = EditMode.SIMPLE.value
+    mode_min: str = EditMode.ADVANCED.value
 
 
 class PresetManagerDialog(QDialog):
@@ -60,7 +59,6 @@ class PresetManagerDialog(QDialog):
         self._desc = QLineEdit(self)
         self._formats = QLineEdit(self)
         self._tags = QLineEdit(self)
-        self._mode_min = QComboBox(self)
         self._uses_heavy = QCheckBox("Uses heavy tools", self)
         self._requires_apply = QCheckBox("Requires Apply", self)
         self._delta = QPlainTextEdit(self)
@@ -164,9 +162,6 @@ class PresetManagerDialog(QDialog):
         form.addRow("Applies to formats", self._formats)
         form.addRow("Applies to tags", self._tags)
 
-        for mode in EditMode:
-            self._mode_min.addItem(mode.value.title(), userData=mode.value)
-        form.addRow("Min mode", self._mode_min)
         form.addRow("", self._uses_heavy)
         form.addRow("", self._requires_apply)
 
@@ -292,9 +287,6 @@ class PresetManagerDialog(QDialog):
         formats = [p.strip() for p in (self._formats.text() or "").split(",") if p.strip()]
         tags = [p.strip() for p in (self._tags.text() or "").split(",") if p.strip()]
 
-        mode_value = self._mode_min.currentData()
-        mode_min = EditMode(str(mode_value))
-
         raw_delta = self._delta.toPlainText().strip() or "{}"
         try:
             delta_obj = json.loads(raw_delta)
@@ -311,7 +303,7 @@ class PresetManagerDialog(QDialog):
             settings_delta=delta_obj,
             uses_heavy_tools=bool(self._uses_heavy.isChecked()),
             requires_apply=bool(self._requires_apply.isChecked()),
-            mode_min=mode_min,
+            mode_min=EditMode.ADVANCED,
         )
         return preset
 
@@ -345,12 +337,6 @@ class PresetManagerDialog(QDialog):
         self._delta.setPlainText(draft.settings_delta_text or "{}")
         self._uses_heavy.setChecked(bool(draft.uses_heavy_tools))
         self._requires_apply.setChecked(bool(draft.requires_apply))
-
-        # Select mode
-        for idx in range(self._mode_min.count()):
-            if self._mode_min.itemData(idx) == draft.mode_min:
-                self._mode_min.setCurrentIndex(idx)
-                break
 
         self._btn_delete.setEnabled(False)
         self._preset_kind.setText("New user preset")

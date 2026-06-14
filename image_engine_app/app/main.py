@@ -35,17 +35,13 @@ def build_startup_session() -> SessionState:
 def _save_window_settings(window, paths: AppPaths) -> None:  # noqa: ANN001 - PySide object type only available when Qt installed
     settings = load_user_settings(paths)
     geometry = window.normalGeometry() if (window.isMinimized() or window.isMaximized()) else window.geometry()
-    active_asset = window.ui_state.active_asset
-    active_mode = active_asset.edit_state.mode.value if active_asset is not None else "simple"
     compact_ui = bool(window.compact_ui_enabled()) if hasattr(window, "compact_ui_enabled") else False
     settings["ui"] = {
         "window_x": geometry.x(),
         "window_y": geometry.y(),
         "window_width": geometry.width(),
         "window_height": geometry.height(),
-        "mode": active_mode,
         "compact_ui": compact_ui,
-        "performance_mode": window.performance_mode() if hasattr(window, "performance_mode") else "cpu",
     }
     save_user_settings(paths, settings)
 
@@ -60,20 +56,20 @@ def _resolve_runtime_icon_candidates() -> list[Path]:
             meipass = getattr(sys, "_MEIPASS", None)
             if meipass:
                 base = Path(str(meipass))
-                candidates.append(base / "spritefactory_pro.png")
                 candidates.append(base / "spritefactory_pro.ico")
-                candidates.append(base / "spritefactory.png")
                 candidates.append(base / "spritefactory.ico")
+                candidates.append(base / "spritefactory_pro.png")
+                candidates.append(base / "spritefactory.png")
 
             exe_path = Path(sys.executable)
             candidates.append(exe_path)
         else:
             root = Path(__file__).resolve().parents[2]
-            candidates.append(root / "spritefactory_pro.png")
             candidates.append(root / "spritefactory_pro.ico")
+            candidates.append(root / "spritefactory.ico")
+            candidates.append(root / "spritefactory_pro.png")
             candidates.append(root / "docs" / "spritefactory_pro_icon_preview.png")
             candidates.append(root / "spritefactory.png")
-            candidates.append(root / "spritefactory.ico")
             candidates.append(root / "docs" / "spritefactory_icon_preview.png")
     except Exception:
         return []
@@ -182,17 +178,9 @@ def main(argv: list[str] | None = None) -> int:
             window.move(int(ui_settings["window_x"]), int(ui_settings["window_y"]))
         if bool(ui_settings.get("compact_ui", False)):
             window.set_compact_ui(True)
-        if isinstance(ui_settings.get("performance_mode"), str):
-            window.set_performance_mode(ui_settings["performance_mode"], announce=False)
 
     window.set_session(build_startup_session())
     window.set_active_asset(None)
-
-    if isinstance(ui_settings, dict) and isinstance(ui_settings.get("mode"), str):
-        try:
-            window.ui_state.set_mode(ui_settings["mode"])
-        except Exception:
-            logger.warning("Ignoring invalid saved mode value: %r", ui_settings.get("mode"))
 
     def _on_about_to_quit() -> None:
         try:

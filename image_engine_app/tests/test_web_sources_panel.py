@@ -9,11 +9,14 @@ import unittest
 
 
 try:
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QMessageBox
 except Exception:  # pragma: no cover - optional dependency in some environments
+    Qt = None  # type: ignore[assignment]
     QApplication = None  # type: ignore[assignment]
+    QMessageBox = None  # type: ignore[assignment]
 
-from image_engine_app.app.web_sources_models import Confidence, ImportTarget, ScanResults, WebItem  # noqa: E402
+from image_engine_app.app.web_sources_models import Confidence, ImportTarget, ScanResults, WebIndexLink, WebItem  # noqa: E402
 from image_engine_app.ui.main_window.web_sources_panel import WebSourcesPanel  # noqa: E402
 
 
@@ -81,6 +84,112 @@ class WebSourcesPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
+    def test_area_dropdown_uses_compact_decoded_labels_and_tooltips(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel.set_sources(
+                websites=[
+                    {
+                        "id": "project_pokemon",
+                        "name": "Project Pokemon",
+                        "areas": [
+                            {
+                                "id": "gen1",
+                                "label": "Home / Docs / Spriteindex 148 / 3d Models Generation 1 Pok%C3%A9mon R90",
+                                "url": "https://example.com/home/docs/spriteindex_148/3d-models-generation-1-pok%C3%A9mon-r90",
+                            }
+                        ],
+                    }
+                ]
+            )
+
+            self.assertEqual("... / Docs / Spriteindex 148 / 3d Models Generation 1 Pokemon R90", panel._area.itemText(0))
+            self.assertEqual(
+                "https://example.com/home/docs/spriteindex_148/3d-models-generation-1-pok%C3%A9mon-r90",
+                panel._area.itemData(0, Qt.ItemDataRole.ToolTipRole),
+            )
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_added_website_areas_use_generic_url_path_labels(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel._custom_url.setText("https://example.com/sprites/pokemon/gen1?form=alt")
+            panel._add_site_btn.click()
+
+            labels = [panel._area.itemText(index) for index in range(panel._area.count())]
+            self.assertIn("Root", labels)
+            self.assertIn("Sprites", labels)
+            self.assertIn("Sprites / Pokemon", labels)
+            self.assertIn("Sprites / Pokemon / Gen1", labels)
+            self.assertIn("Sprites / Pokemon / Gen1 (Query)", labels)
+            self.assertIn("Selected page:", panel._selected_page_hint.text())
+            self.assertIn("https://example.com/sprites/pokemon/gen1?form=alt", panel._selected_page_hint.text())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_saved_page_picker_selects_and_scans_saved_area(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.scan_requested.connect(scans.append)
+
+        try:
+            panel.set_sources(
+                websites=[
+                    {
+                        "id": "example_com",
+                        "name": "example.com",
+                        "areas": [
+                            {
+                                "id": "root",
+                                "label": "Root",
+                                "url": "https://example.com/",
+                            },
+                            {
+                                "id": "sprites_gen1",
+                                "label": "Sprites / Gen1",
+                                "url": "https://example.com/sprites/gen1",
+                            },
+                        ],
+                    },
+                    {
+                        "id": "archive_org",
+                        "name": "archive.example",
+                        "areas": [
+                            {
+                                "id": "animated",
+                                "label": "Animated",
+                                "url": "https://archive.example/animated",
+                            }
+                        ],
+                    },
+                ]
+            )
+
+            for index in range(panel._saved_page.count()):
+                if panel._saved_page.itemData(index, Qt.ItemDataRole.ToolTipRole) == "https://archive.example/animated":
+                    panel._saved_page.setCurrentIndex(index)
+                    break
+
+            panel._scan_btn.click()
+
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                self.assertEqual("https://archive.example/animated", payload.get("area_url"))
+                self.assertEqual("archive_org", payload.get("website_id"))
+                self.assertEqual("animated", payload.get("area_id"))
+            self.assertIn("archive.example", panel._saved_page.currentText())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
     def test_network_diagnostics_emits_payload_for_custom_url(self) -> None:
         app, owns_app, panel = self._setup_panel()
         diagnostics: list[object] = []
@@ -108,6 +217,254 @@ class WebSourcesPanelTests(unittest.TestCase):
         try:
             self.assertEqual("JPG", panel._filter_jpg.text())
             self.assertTrue(panel._filter_jpg.isChecked())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_index_keyword_filter_limits_scan_selected_pages_payload(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel.set_index_links(
+                [
+                    WebIndexLink(
+                        label="HOME Sprites: Gen 1",
+                        url="https://example.com/home-gen-1",
+                        source_page="https://example.com/index",
+                    ),
+                    WebIndexLink(
+                        label="HOME Sprites: Gen 2",
+                        url="https://example.com/home-gen-2",
+                        source_page="https://example.com/index",
+                    ),
+                ]
+            )
+            panel._index_keyword.setText("gen 1")
+            panel._select_visible_index_links()
+            panel._scan_selected_pages_btn.click()
+
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                pages = payload.get("pages")
+                self.assertIsInstance(pages, list)
+                if isinstance(pages, list):
+                    self.assertEqual(1, len(pages))
+                    self.assertEqual("HOME Sprites: Gen 1", pages[0].get("label"))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_large_selected_page_scan_warns_and_caps_payload(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel.set_index_links(
+                [
+                    WebIndexLink(
+                        label=f"Page {index}",
+                        url=f"https://example.com/page-{index}",
+                        source_page="https://example.com/index",
+                    )
+                    for index in range(panel.LINKED_PAGE_SCAN_CAP + 5)
+                ]
+            )
+            panel._select_visible_index_links()
+
+            original_confirm = panel.confirm_large_linked_page_scan
+            confirm_calls: list[tuple[int, int]] = []
+
+            def confirm(page_count: int, *, cap: int | None = None) -> bool:
+                confirm_calls.append((page_count, int(cap or 0)))
+                return True
+
+            panel.confirm_large_linked_page_scan = confirm  # type: ignore[method-assign]
+            try:
+                panel._scan_selected_pages_btn.click()
+            finally:
+                panel.confirm_large_linked_page_scan = original_confirm  # type: ignore[method-assign]
+
+            self.assertEqual([(panel.LINKED_PAGE_SCAN_CAP + 5, panel.LINKED_PAGE_SCAN_CAP)], confirm_calls)
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                pages = payload.get("pages")
+                self.assertIsInstance(pages, list)
+                if isinstance(pages, list):
+                    self.assertEqual(panel.LINKED_PAGE_SCAN_CAP, len(pages))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_large_selected_page_scan_can_be_cancelled_before_emit(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel.set_index_links(
+                [
+                    WebIndexLink(label=f"Page {index}", url=f"https://example.com/page-{index}")
+                    for index in range(panel.LINKED_PAGE_SCAN_CAP + 1)
+                ]
+            )
+            panel._select_visible_index_links()
+            panel.confirm_large_linked_page_scan = lambda *_args, **_kwargs: False  # type: ignore[method-assign]
+            panel._scan_selected_pages_btn.click()
+
+            self.assertEqual([], scans)
+            self.assertIn("cancelled", panel._status.text().lower())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_manual_page_urls_emit_multi_scan_payload_with_dedupe(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel._manual_links.setPlainText(
+                "\n".join(
+                    [
+                        "example.com/sprites/gen-1",
+                        "https://example.com/sprites/gen-1",
+                        "ftp://example.com/bad",
+                        "https://example.com/sprites/gen-2",
+                    ]
+                )
+            )
+            panel._scan_manual_links_btn.click()
+
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                pages = payload.get("pages")
+                self.assertIsInstance(pages, list)
+                if isinstance(pages, list):
+                    self.assertEqual(2, len(pages))
+                    self.assertEqual("https://example.com/sprites/gen-1", pages[0].get("url"))
+                    self.assertEqual("https://example.com/sprites/gen-2", pages[1].get("url"))
+            self.assertIn("skipped", panel._status.text().lower())
+            self.assertIn("invalid", panel._status.text().lower())
+            self.assertIn("duplicate", panel._status.text().lower())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_large_manual_page_scan_warns_and_caps_payload(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel._manual_links.setPlainText(
+                "\n".join(
+                    f"https://example.com/page-{index}"
+                    for index in range(panel.LINKED_PAGE_SCAN_CAP + 3)
+                )
+            )
+            confirm_calls: list[tuple[int, int]] = []
+
+            def confirm(page_count: int, *, cap: int | None = None) -> bool:
+                confirm_calls.append((page_count, int(cap or 0)))
+                return True
+
+            panel.confirm_large_linked_page_scan = confirm  # type: ignore[method-assign]
+            panel._scan_manual_links_btn.click()
+
+            self.assertEqual([(panel.LINKED_PAGE_SCAN_CAP + 3, panel.LINKED_PAGE_SCAN_CAP)], confirm_calls)
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                pages = payload.get("pages")
+                self.assertIsInstance(pages, list)
+                if isinstance(pages, list):
+                    self.assertEqual(panel.LINKED_PAGE_SCAN_CAP, len(pages))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_find_linked_pages_emits_custom_index_url_payload(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        requests: list[object] = []
+        panel.index_links_requested.connect(requests.append)
+
+        try:
+            panel._custom_url.setText("example.com/sprite-index")
+            panel._find_index_links_btn.click()
+
+            self.assertEqual(1, len(requests))
+            payload = requests[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                self.assertEqual("https://example.com/sprite-index", payload.get("index_url"))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_find_and_scan_all_emits_custom_index_url_payload(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        requests: list[object] = []
+        panel.index_scan_all_requested.connect(requests.append)
+
+        try:
+            panel._custom_url.setText("example.com/sprite-index")
+            panel._scan_index_all_btn.click()
+
+            self.assertEqual(1, len(requests))
+            payload = requests[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                self.assertEqual("https://example.com/sprite-index", payload.get("index_url"))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_result_search_matches_url_and_source_page(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel.set_results(
+                ScanResults(
+                    items=(
+                        WebItem(
+                            url="https://cdn.example.com/bulbasaur.png",
+                            name="001.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/home-gen-1",
+                        ),
+                        WebItem(
+                            url="https://cdn.example.com/charmander.png",
+                            name="004.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/home-gen-1",
+                        ),
+                    ),
+                    filtered_count=0,
+                )
+            )
+            panel._search.setText("bulbasaur")
+            self.assertEqual(1, panel._results.count())
+            panel._search.setText("home-gen-1")
+            self.assertEqual(2, panel._results.count())
         finally:
             panel.close()
             if owns_app and app is not None:

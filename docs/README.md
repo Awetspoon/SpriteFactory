@@ -4,7 +4,8 @@ This folder holds support docs and visual assets used by the repository.
 
 ## Start Here
 
-- [Release 1.2.0 notes](RELEASE_1.2.0.md)
+- [Cleanup phase log](../CLEANUP_PHASE_LOG.md)
+- [Release 1.2.1 notes](RELEASE_1.2.1.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Release checklist](RELEASE_CHECKLIST.md)
 - [Audit checklist](AUDIT_CHECKLIST.md)

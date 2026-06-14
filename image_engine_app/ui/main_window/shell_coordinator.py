@@ -24,30 +24,21 @@ class ShellCoordinator:
             action.setChecked(compact)
             action.blockSignals(False)
 
-        tabs = self._window._page_tabs
+        pages = self._window._page_tabs
         helper_index = self._window._helper_tab_index
-        if tabs is not None and helper_index is not None and 0 <= helper_index < tabs.count():
-            if compact and tabs.currentIndex() == helper_index:
-                tabs.setCurrentIndex(0)
-            if hasattr(tabs, "setTabVisible"):
-                tabs.setTabVisible(helper_index, not compact)
-            else:
-                tabs.setTabEnabled(helper_index, not compact)
+        if pages is not None and helper_index is not None and 0 <= helper_index < pages.count():
+            if compact and pages.currentIndex() == helper_index:
+                if hasattr(self._window, "_set_page_index"):
+                    self._window._set_page_index(0)
+                else:
+                    pages.setCurrentIndex(0)
+            helper_button = getattr(self._window, "_page_nav_buttons", {}).get(helper_index)
+            if helper_button is not None:
+                helper_button.setVisible(not compact)
 
         inspector = self._window._workspace_inspector_panel
         if inspector is not None:
             inspector.setVisible(not compact)
-        if self._window._workspace_splitter is not None:
-            if compact:
-                self._window._workspace_splitter.setSizes(
-                    [
-                        int(getattr(self._window, "DEFAULT_WORKSPACE_RAIL_WIDTH", 260)),
-                        1600,
-                        0,
-                    ]
-                )
-            else:
-                self._window._workspace_splitter.setSizes(self._window._default_workspace_splitter_sizes())
 
         self._window._status("Compact UI enabled" if compact else "Compact UI disabled")
 
@@ -57,8 +48,6 @@ class ShellCoordinator:
         inspector = self._window._workspace_inspector_panel
         if inspector is not None:
             inspector.show()
-        if self._window._workspace_splitter is not None:
-            self._window._workspace_splitter.setSizes(self._window._default_workspace_splitter_sizes())
         preview = getattr(self._window, "preview_panel", None)
         if preview is not None and hasattr(preview, "restore_default_view"):
             preview.restore_default_view()

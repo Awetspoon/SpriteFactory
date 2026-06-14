@@ -39,7 +39,7 @@ class ExportEncodingDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Export Encoding (Expert)")
+        self.setWindowTitle("Export Encoding")
         self.resize(540, 380)
 
         self._format_combo = QComboBox(self)

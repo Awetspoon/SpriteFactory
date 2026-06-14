@@ -27,7 +27,6 @@ from image_engine_app.engine.models import (
 from image_engine_app.engine.process.heavy_queue import HeavyQueueEngine
 from image_engine_app.engine.process.heavy_runtime import execute_heavy_job
 from image_engine_app.engine.process.light_steps import LightProcessError
-from image_engine_app.engine.process.performance_backend import CPU_MODE, PerformanceBackend
 from image_engine_app.engine.process.pipeline import PipelinePhase, ProcessingPlan, ProcessingStep, build_processing_plan
 from image_engine_app.engine.process.preset_compat import preset_matches_asset
 from image_engine_app.engine.process.presets_apply import ViewEditStates, apply_preset_stack
@@ -63,7 +62,6 @@ class BatchRunnerConfig:
     heavy_progress_steps: int = 3
     heavy_step_delay_seconds: float = 0.0
     predictor_complexity: float = 0.5
-    performance_mode: str = CPU_MODE
 
 
 @dataclass
@@ -133,11 +131,9 @@ class BatchRunner:
         config: BatchRunnerConfig | None = None,
         *,
         heavy_queue_factory: Callable[[], HeavyQueueEngine] | None = None,
-        performance_backend: PerformanceBackend | None = None,
     ) -> None:
         self.config = config or BatchRunnerConfig()
         self._heavy_queue_factory = heavy_queue_factory or (lambda: HeavyQueueEngine())
-        self._performance_backend = performance_backend or PerformanceBackend()
 
     def run(
         self,
@@ -627,8 +623,6 @@ class BatchRunner:
                 asset,
                 job,
                 derived_cache_dir=self.config.derived_cache_dir,
-                performance_backend=self._performance_backend,
-                requested_mode=self.config.performance_mode,
             ),
         )
 

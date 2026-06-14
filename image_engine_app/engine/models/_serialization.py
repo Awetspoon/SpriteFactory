@@ -83,6 +83,8 @@ def _deserialize_value(expected_type: Any, raw_value: Any) -> Any:
         }
 
     if isinstance(expected_type, type) and issubclass(expected_type, Enum):
+        if expected_type.__name__ == "EditMode":
+            raw_value = "expert" if str(raw_value).strip().lower() == "expert" else "advanced"
         return expected_type(raw_value)
 
     if expected_type is datetime:
@@ -119,4 +121,3 @@ class SerializableDataclass:
     @classmethod
     def from_dict(cls: type[T], payload: dict[str, Any]) -> T:
         return _deserialize_dataclass(cls, payload)
-

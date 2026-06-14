@@ -27,7 +27,7 @@ def settings_group_builders(panel: Any) -> dict[str, Callable[[QFormLayout, QWid
         "AI Enhance": partial(build_ai_enhance_group, panel),
         "GIF Controls": partial(build_gif_controls_group, panel),
         "Export": partial(build_export_group, panel),
-        "Expert Encoding": partial(build_expert_encoding_group, panel),
+        "Export Encoding": partial(build_export_encoding_group, panel),
     }
 
 
@@ -323,7 +323,7 @@ def build_export_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
     panel._export_quality_hint = quality_hint
     form.addRow("", quality_hint)
 
-    strip = QCheckBox("Remove metadata (recommended for web/private sharing)", page)
+    strip = QCheckBox("Remove metadata", page)
     strip.setChecked(True)
     strip.setToolTip("Removes metadata where supported. Can slightly reduce file size and improve privacy.")
     panel._bind_bool(strip, "export", "strip_metadata")
@@ -331,7 +331,7 @@ def build_export_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
     form.addRow("", strip)
 
 
-def build_expert_encoding_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
+def build_export_encoding_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
     open_encoding = QPushButton("Open Encoding Window", page)
     open_encoding.setAutoDefault(False)
     open_encoding.clicked.connect(panel._emit_open_encoding_window)

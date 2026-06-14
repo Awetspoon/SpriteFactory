@@ -21,6 +21,7 @@ from image_engine_app.app.web_sources_models import (
     ImportTarget,
     ScanResults,
     SmartOptions,
+    WebIndexLink,
     WebItem,
     coerce_smart_options,
     coerce_web_item,
@@ -65,6 +66,39 @@ _SITE_ASSET_HINTS = (
     "youtube",
     "avatar",
 )
+
+
+class _IndexLinkParser(HTMLParser):
+    """Small anchor parser for sprite/category index pages."""
+
+    def __init__(self, *, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.links: list[tuple[str, str]] = []
+        self._href_stack: list[str | None] = []
+        self._text_stack: list[list[str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        attr_map = {name.lower(): (value or "") for name, value in attrs}
+        href = str(attr_map.get("href", "")).strip() or None
+        self._href_stack.append(href)
+        self._text_stack.append([])
+
+    def handle_data(self, data: str) -> None:
+        if self._text_stack:
+            self._text_stack[-1].append(str(data or ""))
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or not self._href_stack:
+            return
+        href = self._href_stack.pop()
+        text_parts = self._text_stack.pop() if self._text_stack else []
+        if not href:
+            return
+        label = " ".join(" ".join(text_parts).split())
+        self.links.append((label, urljoin(self.base_url, href)))
 
 
 @dataclass
@@ -215,6 +249,89 @@ class WebSourcesService:
                 pass
 
         return ScanResults(items=tuple(items), filtered_count=filtered)
+
+    def discover_index_links(
+        self,
+        index_url: str,
+        *,
+        opener=None,
+        same_domain_only: bool = True,
+        cancel_requested=None,
+    ) -> tuple[WebIndexLink, ...]:
+        """Discover linked sprite/category pages from an index URL."""
+
+        normalized_url = validate_url(str(index_url or "").strip())
+        if callable(cancel_requested) and bool(cancel_requested()):
+            raise WebpageScanCancelledError("Scan cancelled")
+
+        html = fetch_html(normalized_url, opener=opener, cancel_requested=cancel_requested)
+        parser = _IndexLinkParser(base_url=normalized_url)
+        parser.feed(html)
+
+        seed_host = urlparse(normalized_url).netloc.lower()
+        seen: set[str] = set()
+        links: list[WebIndexLink] = []
+
+        for raw_label, raw_url in parser.links:
+            if callable(cancel_requested) and bool(cancel_requested()):
+                raise WebpageScanCancelledError("Scan cancelled")
+
+            url = self._normalize_index_link_url(raw_url)
+            if not url or url in seen:
+                continue
+            parsed = urlparse(url)
+            if parsed.scheme.lower() not in {"http", "https"}:
+                continue
+            if same_domain_only and parsed.netloc.lower() != seed_host:
+                continue
+            if normalize_ext(url) in ALLOWED_IMAGE_EXTS_DEFAULT | ALLOWED_ARCHIVE_EXTS_DEFAULT:
+                continue
+
+            seen.add(url)
+            label = self._resolve_index_link_label(raw_label, url)
+            links.append(WebIndexLink(label=label, url=url, source_page=normalized_url))
+
+        return tuple(links)
+
+    def scan_pages(
+        self,
+        page_urls: list[str],
+        *,
+        allowed_exts: set[str] | None = None,
+        show_likely: bool = False,
+        opener=None,
+        cancel_requested=None,
+    ) -> ScanResults:
+        """Scan multiple selected page URLs and merge/dedupe their results."""
+
+        items: list[WebItem] = []
+        seen_urls: set[str] = set()
+        filtered_count = 0
+
+        for page_url in page_urls:
+            if callable(cancel_requested) and bool(cancel_requested()):
+                raise WebpageScanCancelledError("Scan cancelled")
+
+            normalized = str(page_url or "").strip()
+            if not normalized:
+                continue
+
+            page_result = self.scan_area(
+                normalized,
+                allowed_exts=allowed_exts,
+                show_likely=show_likely,
+                opener=opener,
+                cancel_requested=cancel_requested,
+            )
+            filtered_count += int(page_result.filtered_count or 0)
+            for item in page_result.items:
+                key = self.canonicalize_download_url(item.url) or item.url
+                if key in seen_urls:
+                    continue
+                seen_urls.add(key)
+                items.append(item)
+
+        return ScanResults(items=tuple(items), filtered_count=filtered_count)
 
     def download_items(
         self,
@@ -937,6 +1054,24 @@ class WebSourcesService:
         if remaining > 0:
             preview = f"{preview}; +{remaining} more"
         return preview
+
+    @staticmethod
+    def _normalize_index_link_url(raw_url: str) -> str:
+        parsed = urlparse(str(raw_url or "").strip())
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        return parsed._replace(fragment="").geturl()
+
+    @staticmethod
+    def _resolve_index_link_label(raw_label: str, url: str) -> str:
+        label = " ".join(str(raw_label or "").split())
+        if label:
+            return label
+        parsed = urlparse(str(url or "").strip())
+        path_name = unquote(Path(parsed.path).name).strip()
+        if path_name:
+            return path_name.replace("-", " ").replace("_", " ").strip().title()
+        return parsed.netloc or "Linked Page"
 
     @staticmethod
     def sanitize_registry(raw: object) -> list[dict]:

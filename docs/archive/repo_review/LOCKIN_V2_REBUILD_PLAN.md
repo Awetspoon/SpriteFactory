@@ -3,7 +3,7 @@
 ## Goal (Plain English)
 - Rebuild the UI/controls/workflow cleanly from the ground up.
 - Keep the working engine/export/session logic where possible.
-- Make `Simple / Advanced / Expert` reliable and clear.
+- Keep editing controls reliable and clear.
 - Keep preview as the main focus.
 - Avoid losing features from the current program.
 
@@ -20,19 +20,19 @@
 - URL import strategy/filter concepts (generic any-URL support)
 
 ## What We Rebuild Cleanly
-- Controls area architecture (mode-specific shells)
+- Controls area architecture
 - Preview-first layout
-- Mode-specific UX (`Simple`, `Advanced`, `Expert`)
+- Clean editing workflow UX
 - Control grouping/category labeling (plain English first)
 - Duplicate/confusing settings presentation
 - Visibility logic and layout breakage issues
 
 ## Core V2 Architecture Direction
 1. Preview-first center panel
-2. Mode-specific controls shells (`QStackedWidget`)
+2. Clean controls shell structure
 3. One canonical settings state (no duplicate logic paths)
-4. Simple mode uses safe proxy controls
-5. Advanced/Expert expose deeper canonical controls
+4. Common controls use safe defaults
+5. Deeper controls remain organized and stable
 
 ## Planned Build Phases
 ### Phase 1 - Feature Inventory (No heavy coding)
@@ -42,7 +42,7 @@
 
 ### Phase 2 - V2 UX Spec (Plain English)
 - Final layout blueprint (Queue / Preview / Controls)
-- Simple/Advanced/Expert behavior and edit order
+- Editing behavior and apply order
 - Category mapping (Pixel & Resolution, Color & Light, Detail, Cleanup, Edges, Transparency, AI Enhance, Export)
 - Preview / Checks placement rules
 
@@ -52,10 +52,10 @@
 - Controls shell stack
 - Shared canonical settings bindings
 
-### Phase 4 - Mode Rebuilds
-- Simple Inspector (guided, plain English)
-- Advanced Inspector (organized depth)
-- Expert Inspector (dense but stable)
+### Phase 4 - Inspector Rebuild
+- Guided controls in plain English
+- Organized depth for experienced users
+- Dense controls stay stable and predictable
 
 ### Phase 5 - Integration + Compatibility
 - Session/autosave compatibility checks
@@ -69,4 +69,3 @@
 
 ## Immediate Next Step
 - Start Phase 1 inventory from the locked baseline project and write `docs/V2_FEATURE_INVENTORY.md`.
-

@@ -25,20 +25,20 @@ def _make_edit_state(*, mode: EditMode, brightness: float = 0.0, quality: int = 
 
 
 class BoundsTests(unittest.TestCase):
-    def test_mode_clamping_differs_between_simple_and_expert(self) -> None:
-        state = EditState(mode=EditMode.SIMPLE)
+    def test_mode_clamping_differs_between_advanced_and_expert(self) -> None:
+        state = EditState(mode=EditMode.ADVANCED)
         state.settings.color.brightness = 0.8
         state.settings.ai.upscale_factor = 6.0
         state.settings.export.quality = 150
         state.settings.pixel.resize_percent = 2000.0
 
-        simple = clamp_edit_state_for_mode(state, mode=EditMode.SIMPLE)
+        advanced = clamp_edit_state_for_mode(state, mode=EditMode.ADVANCED)
         expert = clamp_edit_state_for_mode(state, mode=EditMode.EXPERT)
 
-        self.assertEqual(simple.settings.color.brightness, 0.25)
-        self.assertEqual(simple.settings.ai.upscale_factor, 2.0)
-        self.assertEqual(simple.settings.export.quality, 100)
-        self.assertEqual(simple.settings.pixel.resize_percent, 400.0)
+        self.assertEqual(advanced.settings.color.brightness, 0.5)
+        self.assertEqual(advanced.settings.ai.upscale_factor, 4.0)
+        self.assertEqual(advanced.settings.export.quality, 100)
+        self.assertEqual(advanced.settings.pixel.resize_percent, 800.0)
 
         self.assertEqual(expert.settings.color.brightness, 0.8)
         self.assertEqual(expert.settings.ai.upscale_factor, 6.0)
@@ -52,18 +52,18 @@ class PresetApplyTests(unittest.TestCase):
             name="Brighten",
             description="Raise brightness and quality",
             settings_delta={"color": {"brightness": 0.9}, "export": {"quality": 120}},
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
         )
-        current = _make_edit_state(mode=EditMode.SIMPLE, brightness=0.0, quality=90)
+        current = _make_edit_state(mode=EditMode.ADVANCED, brightness=0.0, quality=90)
         current.apply_target = ApplyTarget.CURRENT
         current.sync_current_final = False
-        final = _make_edit_state(mode=EditMode.SIMPLE, brightness=-0.1, quality=70)
+        final = _make_edit_state(mode=EditMode.ADVANCED, brightness=-0.1, quality=70)
 
         report = apply_preset_to_views(preset, states=ViewEditStates(current=current, final=final))
 
         self.assertEqual(report.effective_target, ApplyTarget.CURRENT)
         self.assertFalse(report.sync_applied)
-        self.assertEqual(report.states.current.settings.color.brightness, 0.25)  # clamped in Simple mode
+        self.assertEqual(report.states.current.settings.color.brightness, 0.5)  # baseline clamp
         self.assertEqual(report.states.current.settings.export.quality, 100)
         self.assertEqual(report.states.final.settings.color.brightness, -0.1)  # unchanged
         self.assertEqual(report.states.final.settings.export.quality, 70)
@@ -95,13 +95,13 @@ class PresetApplyTests(unittest.TestCase):
             name="BaseTone",
             description="Base color adjustments",
             settings_delta={"color": {"brightness": 0.2, "contrast": 0.1}},
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
         )
         override = PresetModel(
             name="HeavyUpscale",
             description="Enable upscale",
             settings_delta={"ai": {"upscale_factor": 6.0}},
-            mode_min=EditMode.SIMPLE,
+            mode_min=EditMode.ADVANCED,
             uses_heavy_tools=True,
             requires_apply=True,
         )
@@ -128,9 +128,9 @@ class PresetApplyTests(unittest.TestCase):
             settings_delta={"ai": {"deblur_strength": 0.8}},
             mode_min=EditMode.EXPERT,
         )
-        current = _make_edit_state(mode=EditMode.SIMPLE)
+        current = _make_edit_state(mode=EditMode.ADVANCED)
         current.apply_target = ApplyTarget.CURRENT
-        final = _make_edit_state(mode=EditMode.SIMPLE)
+        final = _make_edit_state(mode=EditMode.ADVANCED)
 
         with self.assertRaises(PresetApplyError):
             apply_preset_to_views(preset, states=ViewEditStates(current=current, final=final))

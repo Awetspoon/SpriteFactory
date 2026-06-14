@@ -11,16 +11,16 @@ import unittest
 
 
 try:
-    from PySide6.QtWidgets import QApplication, QTextBrowser
+    from PySide6.QtWidgets import QApplication, QTextBrowser, QToolButton
 except Exception:  # pragma: no cover - optional dependency in some environments
     QApplication = None  # type: ignore[assignment]
     QTextBrowser = None  # type: ignore[assignment]
+    QToolButton = None  # type: ignore[assignment]
 
 from image_engine_app.app.paths import ensure_app_paths  # noqa: E402
 from image_engine_app.app.settings_store import save_path_preferences  # noqa: E402
 from image_engine_app.app.ui_controller import ImageEngineUIController  # noqa: E402
 from image_engine_app.engine.models import AssetRecord, EditMode, SessionState  # noqa: E402
-from image_engine_app.engine.process.performance_backend import PerformanceAvailability, PerformanceBackend  # noqa: E402
 from image_engine_app.ui.main_window.main_window import ImageEngineMainWindow  # noqa: E402
 
 
@@ -46,16 +46,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         if app is None:
             app = QApplication([])
 
-        controller = ImageEngineUIController(
-            performance_backend=PerformanceBackend(
-                availability=PerformanceAvailability(
-                    cpu_available=True,
-                    gpu_available=False,
-                    gpu_backend_label=None,
-                    gpu_disabled_reason="GPU backend not installed",
-                )
-            )
-        )
+        controller = ImageEngineUIController()
         window = ImageEngineMainWindow(controller=controller)
 
         try:
@@ -66,22 +57,18 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.assertEqual(tuple(window.preview_panel._panes.keys()), ("current", "final"))
             self.assertTrue(hasattr(window, "web_sources_panel"))
             self.assertTrue(hasattr(window.web_sources_panel, "set_sources"))
+            self.assertEqual(3, len(window._page_nav_buttons))
+            self.assertTrue(window.findChildren(QToolButton, "shellPageRailButton"))
+            self.assertFalse(hasattr(window.asset_tabs, "_import_button"))
             self.assertIsNotNone(window._workspace_splitter)
             self.assertIsNotNone(window._workspace_editor_splitter)
             self.assertTrue(hasattr(window.export_bar, "_skip_btn"))
             self.assertFalse(window.export_bar._skip_btn.isEnabled())
-            shell_sizes = window._workspace_splitter.sizes()
-            self.assertEqual(3, len(shell_sizes))
-            self.assertGreater(shell_sizes[1], shell_sizes[0])
-            self.assertGreater(shell_sizes[1], shell_sizes[2])
-            self.assertGreater(window._workspace_editor_splitter.sizes()[0], window._workspace_editor_splitter.sizes()[1])
             self.assertIsNotNone(window._workspace_left_panel)
             self.assertIsNotNone(window._workspace_inspector_panel)
+            self.assertEqual(window.MOCK_WORKSPACE_PANEL_WIDTH, window._workspace_left_panel.width())
+            self.assertEqual(window.MOCK_INSPECTOR_PANEL_WIDTH, window._workspace_inspector_panel.width())
             self.assertTrue(window._workspace_inspector_panel.isVisible())
-            self.assertIsNotNone(window._cpu_action)
-            self.assertIsNotNone(window._gpu_action)
-            self.assertTrue(window._cpu_action.isChecked())
-            self.assertFalse(window._gpu_action.isEnabled())
             guide = window.findChild(QTextBrowser, "shellGuideBrowser")
             self.assertIsNotNone(guide)
             self.assertIn("Skip", guide.toPlainText())
@@ -118,8 +105,6 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.assertIsNone(window.ui_state.active_asset)
             self.assertEqual([], window.workspace_assets)
             self.assertEqual(window.statusBar().currentMessage(), "New session created")
-            self.assertEqual("simple", window._mode_combo.currentData())
-            self.assertFalse(window.presets_bar._preset_combo.isEnabled())
         finally:
             window.close()
             if owns_app and app is not None:
@@ -154,37 +139,6 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         if owns_app and app is not None:
             app.quit()
-
-    def test_gpu_toolbar_action_reflects_backend_availability(self) -> None:
-        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        app = QApplication.instance()
-        owns_app = app is None
-        if app is None:
-            app = QApplication([])
-
-        controller = ImageEngineUIController(
-            performance_backend=PerformanceBackend(
-                availability=PerformanceAvailability(
-                    cpu_available=True,
-                    gpu_available=False,
-                    gpu_backend_label=None,
-                    gpu_disabled_reason="GPU backend not installed",
-                )
-            )
-        )
-        window = ImageEngineMainWindow(controller=controller)
-
-        try:
-            window.set_performance_mode("gpu", announce=False)
-            self.assertEqual(window.performance_mode(), "cpu")
-            self.assertIsNotNone(window._gpu_action)
-            self.assertFalse(window._gpu_action.isEnabled())
-            self.assertIn("not installed", window._gpu_action.toolTip().lower())
-        finally:
-            window.close()
-            if owns_app and app is not None:
-                app.quit()
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,7 @@ from image_engine_app.app.services.web_sources_service import WebSourcesService
 from image_engine_app.app.settings_store import load_web_sources_settings, save_web_sources_settings
 from image_engine_app.app.web_sources_models import (
     SmartOptions,
+    coerce_web_index_links,
     coerce_import_target,
     coerce_smart_options,
     coerce_web_items,
@@ -338,6 +339,195 @@ class WebSourcesCoordinator:
 
         self._window.web_sources_panel.set_results(results)
         self._window._status(f"Web Sources scan complete: {len(results.items)} item(s)")
+        self.persist_state(
+            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
+            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
+            smart=smart,
+        )
+
+    def on_index_links_requested(self, payload: object) -> None:
+        if self._window.controller is None:
+            self._window.web_sources_panel.set_status("Web Sources index scan unavailable: controller not configured")
+            return
+
+        if not isinstance(payload, dict):
+            self._window.web_sources_panel.set_status("Invalid index scan payload.")
+            return
+
+        index_url = str(payload.get("index_url", "")).strip()
+        if not index_url:
+            self._window.web_sources_panel.set_status("Enter a URL or pick an area first.")
+            return
+
+        smart = coerce_smart_options(payload.get("smart"))
+        progress = _ProgressSession(
+            window=self._window,
+            panel=self._window.web_sources_panel,
+            label_text="Finding linked sprite pages...",
+            title="Web Sources Index Scan",
+            minimum=0,
+            maximum=0,
+            cancel_label_text="Cancelling index scan...",
+            cancel_status_text="Cancelling index scan...",
+        )
+
+        try:
+            links = self._window.controller.discover_web_source_index_links(
+                index_url,
+                same_domain_only=True,
+                cancel_requested=progress.is_cancel_requested,
+            )
+        except WebpageScanCancelledError:
+            self._window.web_sources_panel.set_status("Index scan cancelled")
+            self._window._status("Web Sources index scan cancelled")
+            return
+        except Exception as exc:
+            detail = self._normalize_network_error_message(str(exc))
+            self._window.web_sources_panel.set_status(f"Index scan failed: {detail}")
+            return
+        finally:
+            progress.close()
+
+        self._window.web_sources_panel.set_index_links(links)
+        self._window._status(f"Web Sources index scan complete: {len(links)} linked page(s)")
+        self.persist_state(
+            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
+            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
+            smart=smart,
+        )
+
+    def on_multi_scan_requested(self, payload: object) -> None:
+        if self._window.controller is None:
+            self._window.web_sources_panel.set_status("Web Sources multi-page scan unavailable: controller not configured")
+            return
+
+        if not isinstance(payload, dict):
+            self._window.web_sources_panel.set_status("Invalid multi-page scan payload.")
+            return
+
+        links = coerce_web_index_links(payload.get("pages"))
+        if not links:
+            self._window.web_sources_panel.set_status("Select one or more linked pages first.")
+            return
+
+        smart = coerce_smart_options(payload.get("smart"))
+        progress = _ProgressSession(
+            window=self._window,
+            panel=self._window.web_sources_panel,
+            label_text=f"Scanning {len(links)} linked page(s)...",
+            title="Web Sources Multi-Page Scan",
+            minimum=0,
+            maximum=0,
+            cancel_label_text="Cancelling multi-page scan...",
+            cancel_status_text="Cancelling multi-page scan...",
+        )
+
+        try:
+            results = self._window.controller.scan_web_source_pages(
+                [link.url for link in links],
+                show_likely=smart.show_likely,
+                cancel_requested=progress.is_cancel_requested,
+            )
+        except WebpageScanCancelledError:
+            self._window.web_sources_panel.set_status("Multi-page scan cancelled")
+            self._window._status("Web Sources multi-page scan cancelled")
+            return
+        except Exception as exc:
+            detail = self._normalize_network_error_message(str(exc))
+            self._window.web_sources_panel.set_status(f"Multi-page scan failed: {detail}")
+            return
+        finally:
+            progress.close()
+
+        self._window.web_sources_panel.set_results(results)
+        self._window._status(
+            f"Web Sources multi-page scan complete: {len(results.items)} item(s) from {len(links)} page(s)"
+        )
+        self.persist_state(
+            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
+            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
+            smart=smart,
+        )
+
+    def on_index_scan_all_requested(self, payload: object) -> None:
+        if self._window.controller is None:
+            self._window.web_sources_panel.set_status("Web Sources linked-page scan unavailable: controller not configured")
+            return
+
+        if not isinstance(payload, dict):
+            self._window.web_sources_panel.set_status("Invalid linked-page scan payload.")
+            return
+
+        index_url = str(payload.get("index_url", "")).strip()
+        if not index_url:
+            self._window.web_sources_panel.set_status("Enter a URL or pick an area first.")
+            return
+
+        smart = coerce_smart_options(payload.get("smart"))
+        progress = _ProgressSession(
+            window=self._window,
+            panel=self._window.web_sources_panel,
+            label_text="Finding linked pages...",
+            title="Web Sources Linked Page Scan",
+            minimum=0,
+            maximum=0,
+            cancel_label_text="Cancelling linked-page scan...",
+            cancel_status_text="Cancelling linked-page scan...",
+        )
+
+        try:
+            links = self._window.controller.discover_web_source_index_links(
+                index_url,
+                same_domain_only=True,
+                cancel_requested=progress.is_cancel_requested,
+            )
+            self._window.web_sources_panel.set_index_links(links)
+            if not links:
+                self._window.web_sources_panel.set_status(
+                    "Found 0 linked pages. Try Scan Current Page for this page or choose a broader index page."
+                )
+                self._window._status("Web Sources linked-page scan found 0 linked pages")
+                return
+
+            page_count = len(links)
+            scan_cap = int(getattr(self._window.web_sources_panel, "LINKED_PAGE_SCAN_CAP", 100))
+            if page_count > scan_cap:
+                should_continue = self._window.web_sources_panel.confirm_large_linked_page_scan(
+                    page_count,
+                    cap=scan_cap,
+                )
+                if not should_continue:
+                    self._window.web_sources_panel.set_status("Linked-page scan cancelled before starting.")
+                    self._window._status("Web Sources linked-page scan cancelled before starting")
+                    return
+                links = links[:scan_cap]
+
+            progress.update(
+                done_count=0,
+                total_count=max(1, len(links)),
+                label_text=f"Scanning {len(links)} linked page(s)...",
+                status_text=f"Scanning {len(links)} linked page(s)...",
+            )
+            results = self._window.controller.scan_web_source_pages(
+                [link.url for link in links],
+                show_likely=smart.show_likely,
+                cancel_requested=progress.is_cancel_requested,
+            )
+        except WebpageScanCancelledError:
+            self._window.web_sources_panel.set_status("Linked-page scan cancelled")
+            self._window._status("Web Sources linked-page scan cancelled")
+            return
+        except Exception as exc:
+            detail = self._normalize_network_error_message(str(exc))
+            self._window.web_sources_panel.set_status(f"Linked-page scan failed: {detail}")
+            return
+        finally:
+            progress.close()
+
+        self._window.web_sources_panel.set_results(results)
+        self._window._status(
+            f"Web Sources linked-page scan complete: {len(results.items)} item(s) from {len(links)} page(s)"
+        )
         self.persist_state(
             website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
             area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),

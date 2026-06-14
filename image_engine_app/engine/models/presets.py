@@ -20,7 +20,7 @@ class PresetModel(SerializableDataclass):
     settings_delta: dict[str, Any] = field(default_factory=dict)
     uses_heavy_tools: bool = False
     requires_apply: bool = False
-    mode_min: EditMode = EditMode.SIMPLE
+    mode_min: EditMode = EditMode.ADVANCED
 
 
 @dataclass

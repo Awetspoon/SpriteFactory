@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from image_engine_app import launcher
+from image_engine_app.app import main as app_main
 
 
 class LauncherTests(unittest.TestCase):
@@ -36,6 +37,13 @@ class LauncherTests(unittest.TestCase):
 
         self.assertEqual(cli_target.resolve(), resolved)
         self.assertFalse(inject_override)
+
+    def test_runtime_icon_prefers_multi_size_ico_before_png(self) -> None:
+        names = [path.name for path in app_main._resolve_runtime_icon_candidates()]
+
+        self.assertIn("spritefactory_pro.ico", names)
+        self.assertIn("spritefactory_pro.png", names)
+        self.assertLess(names.index("spritefactory_pro.ico"), names.index("spritefactory_pro.png"))
 
 
 if __name__ == "__main__":

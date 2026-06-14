@@ -1,12 +1,19 @@
 # Changelog
 
+## 1.2.1 - 2026-06-15
+- Tightened the main shell spacing and control geometry so the preview studio, toolbar, workflow dock, and settings panel feel more consistent.
+- Reworked Web Sources around saved pages, manual page lists, filtered index scanning, and safer scan limits for large sites.
+- Cleaned workspace paging/import presentation and removed duplicate or dead preset/import surfaces.
+- Improved batch, preset, background-removal, GIF-preview, and export workflows so edits are isolated and easier to verify before export.
+- Restored app icon handling, refreshed helper guidance, and cleaned release/repository documentation for upload.
+
 ## 1.2.0 - 2026-03-30
 - Rebuilt the shell into a cleaner preview-first studio layout with compare/current/final view modes, per-pane reset, and calmer off-white theming.
 - Simplified and cleaned the controls/settings surfaces, removed duplicate preset/navigation UI, and refreshed helper copy to match the real app behavior.
 - Reworked preset handling with compatibility filtering, animation-safe GIF behavior, a stronger preset manager, and clearer user-preset editing for advanced users.
 - Rebuilt batch processing so runs operate on isolated clones, preserve mixed-format export behavior, report failures more clearly, and handle copied edits/presets/background overrides consistently.
 - Fixed GIF preview/export behavior so animated assets keep animation in preview/export, stay at sane preview scale, and show clearer transparency/background state.
-- Wired CPU/GPU mode into the heavy-processing path honestly, added backend selection/fallback handling, and kept GPU disabled when no real provider is available.
+- Removed the unused backend toggle from the toolbar and processing path so heavy jobs follow one clear execution flow.
 - Hardened the one-file Windows release flow and aligned packaging/version metadata for GitHub release publishing.
 
 ## 1.1.2 - 2026-03-12
@@ -20,7 +27,7 @@
 
 ## 1.1.0 - 2026-03-12
 - Rebranded UI and runtime identity to **Sprite Factory Pro**.
-- Moved `Encoding Window` access from top toolbar into `Settings > Expert Encoding` and kept full expert controls.
+- Moved `Encoding Window` access from top toolbar into `Settings > Export Encoding` and kept full encoding controls.
 - Rebuilt Transparency controls to explicitly choose white background behavior:
   - Keep white background
   - Remove white background

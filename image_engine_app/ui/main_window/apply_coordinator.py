@@ -67,38 +67,6 @@ class ApplyCoordinator:
             self._window._status("Apply complete: no heavy jobs ran")
         self._window._refresh_export_prediction()
 
-    def on_preset_requested(self, preset_name: str) -> None:
-        asset = self._window.ui_state.active_asset
-        if asset is None:
-            return
-        if self._window.controller is None:
-            self._window._status(f"Preset requested (no controller): {preset_name}")
-            return
-        try:
-            self._window.controller.reset_asset_settings_to_defaults(asset)
-            summary = self._window.controller.apply_named_preset(asset, preset_name)
-        except Exception as exc:
-            self._window._status(f"Preset failed: {exc}")
-            return
-
-        self._window.ui_state.set_heavy_queue_counts(
-            queued_count=len(asset.edit_state.queued_heavy_jobs),
-            running_count=0,
-        )
-        req = " (Apply required)" if summary.requires_apply else ""
-        self._window._status(f"Preset applied: {summary.preset_name}{req}")
-        # Presets should always refresh preview output so users can inspect the result
-        # before deciding to export or run queued heavy steps.
-        try:
-            self._window.controller.apply_light_pipeline(asset)
-        except Exception as exc:
-            self._window._status(f"Light apply failed: {exc}")
-
-        # Always re-emit the active asset so mode/setting changes from preset apply
-        # are reflected immediately even when auto-apply light is disabled.
-        self._window.ui_state.set_active_asset(asset)
-        self._window._refresh_export_prediction()
-
     def on_global_reset_requested(self) -> None:
         asset = self._window.ui_state.active_asset
         if asset is None:

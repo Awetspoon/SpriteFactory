@@ -10,7 +10,7 @@ import unittest
 
 
 try:
-    from PySide6.QtWidgets import QApplication, QPushButton
+    from PySide6.QtWidgets import QApplication, QToolButton
 except Exception:  # pragma: no cover - optional dependency in some environments
     QApplication = None  # type: ignore[assignment]
 
@@ -170,7 +170,7 @@ class SettingsPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_header_updates_with_active_asset_and_mode(self) -> None:
+    def test_header_updates_with_active_asset(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -179,9 +179,9 @@ class SettingsPanelTests(unittest.TestCase):
             ui_state.set_active_asset(asset)
             ui_state.set_mode(EditMode.ADVANCED)
 
-            self.assertEqual("Settings", panel._header_title.text())
+            self.assertEqual("EDIT SETTINGS", panel._header_title.text())
             self.assertIn("hero.png", panel._header_subtitle.text())
-            self.assertIn("Advanced mode", panel._header_subtitle.text())
+            self.assertIn("sections available", panel._header_subtitle.text())
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -207,7 +207,7 @@ class SettingsPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_toolbox_section_change_scrolls_active_group_into_view(self) -> None:
+    def test_toolbox_section_change_keeps_mock_header_visible(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -219,22 +219,18 @@ class SettingsPanelTests(unittest.TestCase):
             panel.show()
             app.processEvents()
 
-            scroll_bar = panel.verticalScrollBar()
-            self.assertGreater(scroll_bar.maximum(), 0)
-
-            scroll_bar.setValue(scroll_bar.maximum())
-            app.processEvents()
-
+            panel.verticalScrollBar().setValue(0)
             panel._toolbox.setCurrentIndex(panel._group_indices["Export"])
             app.processEvents()
 
-            self.assertLess(scroll_bar.value(), scroll_bar.maximum())
+            self.assertEqual(0, panel.verticalScrollBar().value())
+            self.assertEqual("Export", panel._toolbox.itemText(panel._toolbox.currentIndex()))
         finally:
             panel.close()
             if owns_app and app is not None:
                 app.quit()
 
-    def test_settings_group_navigator_uses_stable_button_rail(self) -> None:
+    def test_settings_group_navigator_uses_tile_picker(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -242,11 +238,13 @@ class SettingsPanelTests(unittest.TestCase):
             asset.edit_state.mode = EditMode.EXPERT
             ui_state.set_active_asset(asset)
 
-            nav_buttons = panel._toolbox.findChildren(QPushButton, "settingsGroupNavButton")
+            nav_buttons = panel._toolbox.findChildren(QToolButton, "settingsGroupNavButton")
 
             self.assertEqual(len(SettingsPanel.GROUP_SPECS), len(nav_buttons))
-            self.assertTrue(all(button.minimumHeight() >= 34 for button in nav_buttons))
-            self.assertEqual("Pixel and Resolution", nav_buttons[0].text())
+            self.assertEqual(9, len(nav_buttons))
+            self.assertTrue(all(button.minimumHeight() == 76 for button in nav_buttons))
+            self.assertTrue(all(button.minimumWidth() == 84 for button in nav_buttons))
+            self.assertEqual("Pixel", nav_buttons[0].text())
         finally:
             panel.close()
             if owns_app and app is not None:

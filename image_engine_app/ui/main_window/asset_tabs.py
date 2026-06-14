@@ -44,6 +44,7 @@ class WorkspaceAssetTabs(QFrame):
 
         self._asset_list = QListWidget(self)
         self._summary_label = QLabel(self)
+        self._empty_import_card = QLabel(self)
         self._window_label = QLabel(self)
         self._window_section_combo = QComboBox(self)
         self._window_prev_button = QToolButton(self)
@@ -76,6 +77,7 @@ class WorkspaceAssetTabs(QFrame):
         if items:
             self._asset_list.setEnabled(True)
             self._asset_list.setVisible(True)
+            self._empty_import_card.setVisible(False)
             total = int(total_count) if total_count is not None else len(items)
             hidden = max(0, total - len(items))
             size = max(1, int(window_size))
@@ -111,11 +113,12 @@ class WorkspaceAssetTabs(QFrame):
         else:
             self._asset_list.setEnabled(False)
             self._asset_list.setVisible(False)
+            self._empty_import_card.setVisible(True)
             self._pin_button.setEnabled(False)
             self._pin_button.setVisible(False)
             self._remove_button.setEnabled(False)
             self._remove_button.setVisible(False)
-            self._summary_label.setText("Import a file to start the workspace.")
+            self._summary_label.setText("No assets in workspace.")
             self._window_label.setText("")
             self._window_label.setVisible(False)
             self._window_section_combo.clear()
@@ -154,9 +157,13 @@ class WorkspaceAssetTabs(QFrame):
         outer.setContentsMargins(10, 8, 10, 8)
         outer.setSpacing(6)
 
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
         title = QLabel("Workspace", self)
         title.setObjectName("shellTitle")
-        outer.addWidget(title)
+        title_row.addWidget(title, 0)
+        title_row.addStretch(1)
+        outer.addLayout(title_row)
 
         self._summary_label.setObjectName("shellHint")
         self._summary_label.setWordWrap(True)
@@ -169,26 +176,33 @@ class WorkspaceAssetTabs(QFrame):
         self._window_label.setVisible(False)
         paging.addWidget(self._window_label)
 
-        self._window_section_combo.setMinimumWidth(112)
+        self._window_section_combo.setObjectName("workspaceSectionCombo")
+        self._window_section_combo.setFixedWidth(104)
         self._window_section_combo.setVisible(False)
         self._window_section_combo.currentIndexChanged.connect(self._on_window_section_changed)
-        paging.addWidget(self._window_section_combo, 1)
+        paging.addWidget(self._window_section_combo, 0)
 
-        self._window_prev_button.setText("<")
+        self._window_prev_button.setObjectName("workspacePagerButton")
+        self._window_prev_button.setText("‹")
         self._window_prev_button.setToolTip("Show previous workspace section")
-        self._window_prev_button.setAutoRaise(True)
+        self._window_prev_button.setAutoRaise(False)
+        self._window_prev_button.setFixedSize(24, 24)
         self._window_prev_button.setEnabled(False)
         self._window_prev_button.setVisible(False)
         self._window_prev_button.clicked.connect(self.window_prev_requested.emit)
         paging.addWidget(self._window_prev_button)
 
-        self._window_next_button.setText(">")
+        self._window_next_button.setObjectName("workspacePagerButton")
+        self._window_next_button.setText("›")
         self._window_next_button.setToolTip("Show next workspace section")
-        self._window_next_button.setAutoRaise(True)
+        self._window_next_button.setAutoRaise(False)
+        self._window_next_button.setFixedSize(24, 24)
         self._window_next_button.setEnabled(False)
         self._window_next_button.setVisible(False)
         self._window_next_button.clicked.connect(self.window_next_requested.emit)
         paging.addWidget(self._window_next_button)
+
+        paging.addStretch(1)
 
         outer.addLayout(paging)
 
@@ -220,8 +234,15 @@ class WorkspaceAssetTabs(QFrame):
         self._asset_list.currentItemChanged.connect(self._on_current_item_changed)
         outer.addWidget(self._asset_list, 1)
 
+        self._empty_import_card.setObjectName("workspaceEmptyImportCard")
+        self._empty_import_card.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_import_card.setWordWrap(True)
+        self._empty_import_card.setText("No assets yet")
+        outer.addWidget(self._empty_import_card, 1)
+
         self._asset_list.setVisible(False)
-        self._summary_label.setText("Import a file to start the workspace.")
+        self._empty_import_card.setVisible(True)
+        self._summary_label.setText("No assets in workspace.")
 
     def _sync_section_combo(self, *, total: int, start: int, window_size: int) -> None:
         section_size = max(1, int(window_size))
@@ -233,7 +254,7 @@ class WorkspaceAssetTabs(QFrame):
         for idx in range(section_count):
             section_start = idx * section_size
             section_end = min(total, section_start + section_size)
-            text = f"Section {idx + 1}/{section_count} ({section_start + 1}-{section_end})"
+            text = f"{idx + 1}/{section_count} ({section_start + 1}-{section_end})"
             self._window_section_combo.addItem(text, section_start)
         self._window_section_combo.setCurrentIndex(current_section)
         self._window_section_combo.blockSignals(False)
@@ -302,8 +323,8 @@ class WorkspaceAssetTabs(QFrame):
         show_prev = bool(has_prev) and show_window_controls
         show_next = bool(has_next) and show_window_controls
 
-        self._window_prev_button.setVisible(show_prev)
-        self._window_next_button.setVisible(show_next)
+        self._window_prev_button.setVisible(show_window_controls)
+        self._window_next_button.setVisible(show_window_controls)
         self._window_prev_button.setEnabled(show_prev)
         self._window_next_button.setEnabled(show_next)
         self._window_section_combo.setVisible(show_window_controls and self._window_section_combo.count() > 1)

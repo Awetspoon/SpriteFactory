@@ -39,6 +39,13 @@ class WebItem:
 
 
 @dataclass(frozen=True)
+class WebIndexLink:
+    label: str
+    url: str
+    source_page: str | None = None
+
+
+@dataclass(frozen=True)
 class SmartOptions:
     show_likely: bool = False
     auto_sort: bool = False
@@ -121,6 +128,33 @@ def coerce_web_items(raw: object) -> list[WebItem]:
         item = coerce_web_item(entry)
         if item is not None:
             out.append(item)
+    return out
+
+
+def coerce_web_index_link(value: object) -> WebIndexLink | None:
+    if isinstance(value, WebIndexLink):
+        return value
+    if not isinstance(value, dict):
+        return None
+
+    url = str(value.get("url", "")).strip()
+    if not url:
+        return None
+
+    label = str(value.get("label", "")).strip() or _name_from_url(url)
+    source_page = str(value.get("source_page", "")).strip() or None
+    return WebIndexLink(label=label, url=url, source_page=source_page)
+
+
+def coerce_web_index_links(raw: object) -> list[WebIndexLink]:
+    if not isinstance(raw, list):
+        return []
+
+    out: list[WebIndexLink] = []
+    for entry in raw:
+        link = coerce_web_index_link(entry)
+        if link is not None:
+            out.append(link)
     return out
 
 

@@ -4,12 +4,11 @@ Sprite Factory Pro is a Windows desktop app for sprite and image cleanup, enhanc
 
 [Latest release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [All releases](https://github.com/Awetspoon/SpriteFactory/releases) | [Docs index](docs/README.md)
 
-<img width="1907" height="1007" alt="image" src="https://github.com/user-attachments/assets/5b4c4493-bf18-41d1-8d8c-a57061656669" />
-
+![Sprite Factory main window](docs/sprite-factory-ui.png)
 
 ## Latest Update
 
-- [Release 1.2.0 notes](docs/RELEASE_1.2.0.md)
+- [Release 1.2.1 notes](docs/RELEASE_1.2.1.md)
 
 ## What The Program Does
 
@@ -32,8 +31,10 @@ Sprite Factory Pro is a Windows desktop app for sprite and image cleanup, enhanc
 
 ## Web Sources (URL Scanner)
 
-- `Scan Area` scans a website area and collects direct + likely media links.
-- `Network Check` helps diagnose DNS/TCP/HTTP access issues.
+- `Choose Saved Page` lets you scan any saved website/page directly.
+- `Find Pages` discovers category/index links before scanning selected pages.
+- Manual page URLs can be pasted one per line for multi-page scans.
+- `Network Check` lives under `More` and helps diagnose DNS/TCP/HTTP access issues.
 - Friendly errors are shown for common blockers:
   - `WinError 10013` (Windows blocked network access)
   - `HTTP 403` (site blocked automated requests)
@@ -91,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1
 Output:
 
 - `.local\pyinstaller\dist\SpriteFactory.exe`
-- `.local\release\SpriteFactory-v1.2.0-win64.exe` for direct GitHub release upload
+- `.local\release\SpriteFactory-v1.2.1-win64.exe` for direct GitHub release upload
 
 Folder (onedir) build:
 
@@ -102,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 Output:
 
 - `.local\pyinstaller\dist\SpriteFactory\SpriteFactory.exe`
-- `.local\release\SpriteFactory-v1.2.0-win64-onedir.zip`
+- `.local\release\SpriteFactory-v1.2.1-win64-onedir.zip`
 
 ## GitHub Upload Readiness
 
@@ -111,7 +112,7 @@ Before pushing or publishing:
 - Keep local junk out of the repo: `.venv/`, `.cache/`, `.local/`, `build/`, `dist/`, and `_runtime_data/` are ignored.
 - Use the one-file build if you want a single GitHub release download:
   - `powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1`
-  - upload `.local\release\SpriteFactory-v1.2.0-win64.exe`
+  - upload `.local\release\SpriteFactory-v1.2.1-win64.exe`
 - Use the onedir build only if you specifically want the unpacked folder version.
 - Run the test suite before upload:
   - `.\.venv\Scripts\python.exe -B -m unittest discover -s image_engine_app\tests -p "test_*.py"`

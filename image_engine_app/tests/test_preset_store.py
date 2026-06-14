@@ -26,7 +26,7 @@ class PresetStoreTests(unittest.TestCase):
                     settings_delta={"cleanup": {"denoise": 0.2}},
                     uses_heavy_tools=False,
                     requires_apply=False,
-                    mode_min=EditMode.SIMPLE,
+                    mode_min=EditMode.ADVANCED,
                 ),
                 PresetModel(
                     name="Another",

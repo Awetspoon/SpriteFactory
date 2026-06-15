@@ -4,7 +4,7 @@ Sprite Factory Pro is a Windows desktop app for cleaning, enhancing, previewing,
 
 [Download Latest Release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Release Notes](docs/RELEASE_1.2.1.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-![Sprite Factory Pro main window](docs/sprite-factory-ui.png)
+![Sprite Factory Pro main window](docs/sprite-factory-pro-1.2.1-ui.png)
 
 ## What It Does
 

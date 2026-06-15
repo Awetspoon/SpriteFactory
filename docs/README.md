@@ -13,6 +13,6 @@ This folder holds support docs and visual assets used by the repository.
 
 ## Visuals
 
-- `sprite-factory-ui.png`
+- `sprite-factory-pro-1.2.1-ui.png`
 
 `BUILD_LOCK.md` stays in the repository root because the in-app audit expects that exact path.

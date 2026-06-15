@@ -68,9 +68,7 @@ def _resolve_runtime_icon_candidates() -> list[Path]:
             candidates.append(root / "spritefactory_pro.ico")
             candidates.append(root / "spritefactory.ico")
             candidates.append(root / "spritefactory_pro.png")
-            candidates.append(root / "docs" / "spritefactory_pro_icon_preview.png")
             candidates.append(root / "spritefactory.png")
-            candidates.append(root / "docs" / "spritefactory_icon_preview.png")
     except Exception:
         return []
 

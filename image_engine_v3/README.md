@@ -1,12 +1,11 @@
 # image_engine_v3
 
-This is the parallel rebuild scaffold for Sprite Factory v3.
+This package holds the workspace/session service layer used by the current Sprite Factory app.
 
-It is intentionally isolated from the current production path (`image_engine_app`) so we can migrate safely.
-The current v3 entrypoint now bridges into the active launcher, which keeps the surface runnable while
-the dedicated v3 presentation layer is still being split out.
+It stays separate from `image_engine_app` so the production UI can depend on cleaner application,
+domain, and infrastructure contracts without mixing that logic into the window code.
 
-## Planned Layers
+## Layers
 
 - `domain/`
 - `application/`
@@ -14,21 +13,10 @@ the dedicated v3 presentation layer is still being split out.
 - `presentation/`
 - `app/`
 
-## Current Progress
-
-- Phase 0 complete: scaffolding and architecture baselines
-- Phase 1 complete: session/workspace persistence contracts and legacy adapter
-- Phase 2 in progress: workspace state transitions and section-window behavior
-- V3 app entry now delegates to the real launcher instead of an old print-only hook
-
-## Included In This Step
+## Included
 
 - `application/contracts.py`: v3 repository and workspace-state contracts
 - `application/session_use_cases.py`: workspace persistence use-cases
 - `application/workspace_use_cases.py`: workspace ordering, pinning, close/select, and section window transitions
 - `infrastructure/session_store_adapter.py`: compatibility adapter to existing v2 session storage
 - `infrastructure/workspace_state_adapter.py`: compatibility adapter between v2 workspace/session objects and v3 state
-
-See:
-- `docs/V3_REBUILD_PLAN.md`
-- `docs/V3_ARCHITECTURE.md`

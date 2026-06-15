@@ -134,7 +134,7 @@ image_engine_app/
   engine/           # ingest/process/analyze/export/batch
   tests/            # automated tests
 
-image_engine_v3/     # staged rebuild track
+image_engine_v3/     # workspace/session service layer
 pyinstaller_rthooks/ # runtime hooks for frozen build
 docs/                # repo docs and screenshots
 .local/              # ignored local dev/build/audit artifacts

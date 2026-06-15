@@ -10,13 +10,13 @@ This document describes the intended repository layout for Sprite Factory.
   - `ui/` — PySide6 windows, coordinators, controls, and dialogs.
   - `tests/` — unit and smoke coverage for the active app.
   - `docs/` — package-specific reference notes and default data files.
-- `image_engine_v3/` — parallel rebuild track used by current tests and adapter wiring.
+- `image_engine_v3/` — workspace/session service layer used by current tests and adapter wiring.
   Keep this at the repository root because the active codebase imports it directly.
 
 ## Repository support files
 
 - `pyproject.toml` — repo-root Python project manifest for `image_engine_app` and `image_engine_v3`.
-- `docs/` — repository-level docs, screenshots, release notes, architecture notes, and archives.
+- `docs/` — repository-level docs, screenshots, release notes, and support notes.
 - `pyinstaller_rthooks/` — runtime hooks used by frozen builds.
 - `spritefactory.spec` / `spritefactory_onefile.spec` — PyInstaller entry specs.
 - `run_app.ps1` — local development launcher.
@@ -44,4 +44,3 @@ These should not be treated as source structure and should stay out of version c
 - Imports should be package-qualified (`image_engine_app.*`, `image_engine_v3.*`) rather than relying on `PYTHONPATH=image_engine_app`.
 - `python -m image_engine_app` is the preferred development entrypoint; the repo-root `main.py` wrapper is compatibility sugar only.
 - Legacy repo-root `_runtime_data/` may still exist on a local machine, but it is not part of the intended source layout.
-- Historical review notes live under `docs/archive/` instead of cluttering the repository root.

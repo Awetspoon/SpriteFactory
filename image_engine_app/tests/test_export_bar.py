@@ -44,15 +44,41 @@ class ExportBarWidgetTests(unittest.TestCase):
             self.assertEqual(int(bar._size_label.alignment()), int(Qt.AlignmentFlag.AlignCenter))
 
             ui_state.set_active_asset(AssetRecord(id="asset-1", original_name="sprite.png"))
-            ui_state.export_prediction_changed.emit("Size 42 KB")
-            self.assertEqual("Size 42 KB", bar._size_label.text())
+            ui_state.export_prediction_changed.emit("Estimate 42 KB")
+            self.assertEqual("Estimate 42 KB", bar._size_label.text())
 
             ui_state.set_active_asset(None)
-            self.assertEqual("Size --", bar._size_label.text())
+            self.assertEqual("Estimate --", bar._size_label.text())
+        finally:
+            bar.close()
+
+    def test_folder_actions_are_grouped_in_menu(self) -> None:
+        bar = ExportBar()
+        ui_state = EngineUIState()
+        bar.bind_state(ui_state)
+        ui_state.set_active_asset(AssetRecord(id="asset-2", original_name="sprite.png"))
+
+        browse_calls: list[str] = []
+        open_calls: list[str] = []
+        bar.browse_export_dir_requested.connect(lambda: browse_calls.append("browse"))
+        bar.open_export_dir_requested.connect(lambda: open_calls.append("open"))
+
+        try:
+            self.assertEqual("exportBarMenuAction", bar._folder_menu_btn.objectName())
+            self.assertEqual("Auto-next", bar._auto_next_toggle.text())
+            menu = bar._folder_menu_btn.menu()
+            self.assertIsNotNone(menu)
+            assert menu is not None
+            actions = [action for action in menu.actions() if not action.isSeparator()]
+            self.assertEqual(["Choose Folder", "Open Folder"], [action.text() for action in actions])
+
+            actions[0].trigger()
+            actions[1].trigger()
+            self.assertEqual(["browse"], browse_calls)
+            self.assertEqual(["open"], open_calls)
         finally:
             bar.close()
 
 
 if __name__ == "__main__":
     unittest.main()
-

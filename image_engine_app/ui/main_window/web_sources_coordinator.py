@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 from typing import Any
 from urllib.parse import urlparse
@@ -10,6 +11,7 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 from image_engine_app.app.services.web_sources_service import WebSourcesService
 from image_engine_app.app.settings_store import load_web_sources_settings, save_web_sources_settings
 from image_engine_app.app.web_sources_models import (
+    ScanResults,
     SmartOptions,
     coerce_web_index_links,
     coerce_import_target,
@@ -112,16 +114,56 @@ class WebSourcesCoordinator:
 
     @classmethod
     def _normalize_network_error_message(cls, detail: str) -> str:
-        lowered = str(detail or "").lower()
+        raw = str(detail or "").strip()
+        lowered = raw.lower()
         if "winerror 10013" in lowered or "forbidden by its access permissions" in lowered:
             return cls.WINDOWS_BLOCKED_ACCESS_TEXT
-        if "http error 403" in lowered:
-            return "HTTP 403 (Forbidden): website blocked automated scan requests. Try Network Check or a direct file URL."
-        if "http error 429" in lowered:
-            return "HTTP 429 (Rate limited): try again in a minute, or reduce repeated scans on this host."
-        if "http error 401" in lowered:
+        if "timed out" in lowered or "timeout" in lowered:
+            return "Network timeout: the website did not respond in time. Try again or scan fewer pages."
+
+        http_match = re.search(r"http error\s+(\d{3})(?::\s*([^>]+))?", raw, flags=re.IGNORECASE)
+        if http_match:
+            code = int(http_match.group(1))
+            reason = " ".join(str(http_match.group(2) or "").split())
+            return cls._friendly_http_error(code, reason=reason)
+
+        return raw or "Unknown network error"
+
+    @staticmethod
+    def _friendly_http_error(code: int, *, reason: str = "") -> str:
+        reason_text = f" ({reason})" if reason else ""
+        if code == 401:
             return "HTTP 401 (Unauthorized): this page needs authentication/cookies before scanning."
-        return str(detail)
+        if code == 403:
+            return "HTTP 403 (Forbidden): website blocked automated scan requests. Try Network Check or a direct file URL."
+        if code == 404:
+            return "HTTP 404 (Not Found): the page or file URL no longer exists."
+        if code == 429:
+            return "HTTP 429 (Rate limited): try again in a minute, or reduce repeated scans on this host."
+        if code in {500, 502, 503, 504}:
+            return (
+                f"HTTP {code}{reason_text}: the website/server failed before Sprite Factory could scan it. "
+                "Try again later, scan a smaller page list, or use a direct file URL."
+            )
+        if 400 <= code < 500:
+            return f"HTTP {code}{reason_text}: the website rejected this request."
+        if 500 <= code < 600:
+            return f"HTTP {code}{reason_text}: the website/server failed. Try again later."
+        return f"HTTP {code}{reason_text}"
+
+    @staticmethod
+    def _is_timeout_error_message(detail: str) -> bool:
+        lowered = str(detail or "").lower()
+        return "timed out" in lowered or "timeout" in lowered or "winerror 10060" in lowered
+
+    @classmethod
+    def _is_recoverable_page_scan_error_message(cls, detail: str) -> bool:
+        if cls._is_timeout_error_message(detail):
+            return True
+        http_match = re.search(r"http error\s+(\d{3})", str(detail or ""), flags=re.IGNORECASE)
+        if not http_match:
+            return False
+        return int(http_match.group(1)) in {429, 500, 502, 503, 504}
 
     @classmethod
     def _is_socket_access_denied(cls, exc: Exception) -> bool:
@@ -136,7 +178,7 @@ class WebSourcesCoordinator:
     def _normalize_diagnostics_url(raw_url: str) -> str:
         candidate = str(raw_url or "").strip()
         if not candidate:
-            raise ValueError("Missing area URL for diagnostics.")
+            raise ValueError("Missing page URL for diagnostics.")
         if "://" not in candidate:
             candidate = f"https://{candidate}"
         parsed = urlparse(candidate)
@@ -305,7 +347,7 @@ class WebSourcesCoordinator:
 
         area_url = str(payload.get("area_url", "")).strip()
         if not area_url:
-            self._window.web_sources_panel.set_status("Pick a Website + Area first.")
+            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page first.")
             return
 
         smart = coerce_smart_options(payload.get("smart"))
@@ -332,6 +374,16 @@ class WebSourcesCoordinator:
             return
         except Exception as exc:
             detail = self._normalize_network_error_message(str(exc))
+            if self._is_recoverable_page_scan_error_message(str(exc)):
+                results = ScanResults(items=(), filtered_count=0, failed_pages=(f"{area_url}: {detail}",))
+                self._window.web_sources_panel.set_results(results)
+                self._window._status("Web Sources scan finished: 0 item(s), 1 failed page")
+                self.persist_state(
+                    website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
+                    area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
+                    smart=smart,
+                )
+                return
             self._window.web_sources_panel.set_status(f"Scan failed: {detail}")
             return
         finally:
@@ -356,7 +408,7 @@ class WebSourcesCoordinator:
 
         index_url = str(payload.get("index_url", "")).strip()
         if not index_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick an area first.")
+            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page first.")
             return
 
         smart = coerce_smart_options(payload.get("smart"))
@@ -460,7 +512,7 @@ class WebSourcesCoordinator:
 
         index_url = str(payload.get("index_url", "")).strip()
         if not index_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick an area first.")
+            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page first.")
             return
 
         smart = coerce_smart_options(payload.get("smart"))
@@ -484,7 +536,7 @@ class WebSourcesCoordinator:
             self._window.web_sources_panel.set_index_links(links)
             if not links:
                 self._window.web_sources_panel.set_status(
-                    "Found 0 linked pages. Try Scan Current Page for this page or choose a broader index page."
+                    "Found 0 linked pages. Try Scan Page for this page or choose a broader index page."
                 )
                 self._window._status("Web Sources linked-page scan found 0 linked pages")
                 return
@@ -629,7 +681,7 @@ class WebSourcesCoordinator:
 
         area_url = str(payload.get("area_url", "")).strip()
         if not area_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick an area for diagnostics.")
+            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page for diagnostics.")
             return
 
         try:

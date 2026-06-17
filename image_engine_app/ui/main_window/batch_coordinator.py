@@ -220,7 +220,7 @@ class BatchCoordinator:
             )
             self._window.batch_manager_dialog.update_from_event(event)
         except Exception as exc:
-            LOGGER.exception("Batch progress UI update failed: %s", exc)
+            LOGGER.warning("Batch progress UI update failed: %s", exc)
             self._window._status(f"Batch progress UI warning: {exc}")
 
     def on_cancel_requested(self) -> None:
@@ -237,7 +237,7 @@ class BatchCoordinator:
         try:
             self._window.batch_manager_dialog.update_from_report(report)
         except Exception as exc:
-            LOGGER.exception("Batch report UI update failed: %s", exc)
+            LOGGER.warning("Batch report UI update failed: %s", exc)
             self._window._status(f"Batch report UI warning: {exc}")
         self._window.batch_manager_dialog.set_running(False)
 

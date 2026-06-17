@@ -2,7 +2,7 @@
 
 This scaffold adds the Web Sources feature flow:
 
-`Website + Area` -> `Scan` -> select sprites -> `Download`
+`Paste URL or choose a saved page` -> `Scan Page` -> select files -> `Download Selected`
 
 It is designed to be:
 - **Beginner-friendly** with a simple UI flow

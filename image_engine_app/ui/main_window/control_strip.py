@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -27,6 +27,9 @@ from image_engine_app.ui.main_window.control_strip_state import ControlStripView
 class ControlStrip(QFrame):
     """Compact workspace tools shelf shown below the preview panes."""
 
+    preset_selected = Signal(str)
+    preset_manager_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._ui_state: EngineUIState | None = None
@@ -37,6 +40,8 @@ class ControlStrip(QFrame):
         self._header_summary = QLabel(self)
         self._queue_badge = QLabel(self)
         self._target_badge = QLabel(self)
+        self._preset_button = QToolButton(self)
+        self._preset_menu = QMenu(self._preset_button)
         self._background_button = QToolButton(self)
         self._background_mode_actions: dict[str, QAction] = {}
         self._sync_button = QToolButton(self)
@@ -47,7 +52,45 @@ class ControlStrip(QFrame):
         self._reset_settings_action = QAction(icon("reset"), "Reset Edits", self)
         self._reset_view_action = QAction(icon("reset"), "Reset View", self)
         self._build_ui()
+        self.set_preset_entries([], has_asset=False)
         self._apply_view_state(ControlStripViewState(has_asset=False))
+
+    def set_preset_entries(self, entries: list[object], *, has_asset: bool) -> None:
+        """Refresh the active-asset preset menu without duplicating preset logic."""
+
+        self._preset_menu.clear()
+        if not has_asset:
+            empty_action = QAction("Select an asset first", self._preset_menu)
+            empty_action.setEnabled(False)
+            self._preset_menu.addAction(empty_action)
+            self._preset_menu.addSeparator()
+        elif not entries:
+            empty_action = QAction("No compatible presets", self._preset_menu)
+            empty_action.setEnabled(False)
+            self._preset_menu.addAction(empty_action)
+            self._preset_menu.addSeparator()
+        else:
+            for entry in entries:
+                name = str(getattr(entry, "name", entry) or "").strip()
+                if not name:
+                    continue
+                label = str(getattr(entry, "label", name) or name).strip() or name
+                action = QAction(label, self._preset_menu)
+                action.setData(name)
+                tooltip = str(getattr(entry, "scope_text", "") or "").strip()
+                if tooltip:
+                    action.setToolTip(tooltip)
+                action.triggered.connect(lambda _checked=False, preset_name=name: self.preset_selected.emit(preset_name))
+                self._preset_menu.addAction(action)
+            self._preset_menu.addSeparator()
+
+        manage_action = QAction("Manage Presets...", self._preset_menu)
+        manage_action.triggered.connect(self.preset_manager_requested.emit)
+        self._preset_menu.addAction(manage_action)
+        self._preset_button.setEnabled(True)
+        self._preset_button.setToolTip(
+            "Apply a compatible preset to the active asset" if has_asset else "Open Preset Manager or select an asset first"
+        )
 
     def bind_state(self, ui_state: EngineUIState) -> None:
         self._ui_state = ui_state
@@ -82,6 +125,13 @@ class ControlStrip(QFrame):
 
         header.addLayout(header_text, 1)
 
+        self._preset_button.setObjectName("controlStripMenuAction")
+        self._preset_button.setText("Preset")
+        self._preset_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._preset_button.setMenu(self._preset_menu)
+        self._preset_button.setFixedSize(88, 26)
+        header.addWidget(self._preset_button, 0)
+
         bg_menu = QMenu(self._background_button)
         bg_group = QActionGroup(self)
         bg_group.setExclusive(True)
@@ -98,16 +148,16 @@ class ControlStrip(QFrame):
         self._background_button.setObjectName("controlStripMenuAction")
         self._background_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._background_button.setMenu(bg_menu)
-        self._background_button.setFixedSize(84, 28)
+        self._background_button.setFixedSize(88, 26)
         header.addWidget(self._background_button, 0)
 
         self._target_badge.setObjectName("controlStripHeaderBadge")
-        self._target_badge.setFixedSize(84, 28)
+        self._target_badge.setFixedSize(88, 26)
         self._target_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self._target_badge, 0)
 
         self._queue_badge.setObjectName("controlStripHeaderBadge")
-        self._queue_badge.setFixedSize(84, 28)
+        self._queue_badge.setFixedSize(84, 26)
         self._queue_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(self._queue_badge, 0)
 
@@ -120,8 +170,8 @@ class ControlStrip(QFrame):
         apply_group = QButtonGroup(self)
         apply_group.setExclusive(True)
         for value, label_text in (
-            (ApplyTarget.CURRENT.value, "Cur"),
-            (ApplyTarget.FINAL.value, "Fin"),
+            (ApplyTarget.CURRENT.value, "Current"),
+            (ApplyTarget.FINAL.value, "Final"),
             (ApplyTarget.BOTH.value, "Both"),
         ):
             btn = QToolButton(self)

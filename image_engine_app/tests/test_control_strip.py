@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 
 
@@ -100,8 +101,48 @@ class ControlStripWidgetTests(unittest.TestCase):
         try:
             self.assertEqual("controlStripMenuAction", strip._background_button.objectName())
             self.assertEqual("controlStripMenuAction", strip._options_button.objectName())
+            self.assertEqual("Link", strip._sync_button.text())
+            self.assertEqual("Auto", strip._auto_apply_button.text())
             self.assertGreaterEqual(strip._background_button.minimumWidth(), 84)
             self.assertGreaterEqual(strip._options_button.minimumWidth(), 72)
+        finally:
+            strip.close()
+
+    def test_preset_menu_emits_selected_preset_name(self) -> None:
+        strip = ControlStrip()
+        calls: list[str] = []
+        strip.preset_selected.connect(calls.append)
+
+        try:
+            strip.set_preset_entries(
+                [
+                    SimpleNamespace(
+                        name="GIF Safe Cleanup",
+                        label="GIF Safe Cleanup | GIF",
+                        scope_text="Animation-safe preset",
+                    )
+                ],
+                has_asset=True,
+            )
+            action = strip._preset_menu.actions()[0]
+            self.assertEqual("GIF Safe Cleanup | GIF", action.text())
+            self.assertEqual("GIF Safe Cleanup", action.data())
+            action.trigger()
+            self.assertEqual(["GIF Safe Cleanup"], calls)
+        finally:
+            strip.close()
+
+    def test_preset_menu_keeps_manager_available_without_asset(self) -> None:
+        strip = ControlStrip()
+        calls: list[str] = []
+        strip.preset_manager_requested.connect(lambda: calls.append("manager"))
+
+        try:
+            strip.set_preset_entries([], has_asset=False)
+            actions = strip._preset_menu.actions()
+            self.assertIn("Select an asset first", actions[0].text())
+            actions[-1].trigger()
+            self.assertEqual(["manager"], calls)
         finally:
             strip.close()
 

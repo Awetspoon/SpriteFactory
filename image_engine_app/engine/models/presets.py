@@ -1,4 +1,4 @@
-﻿"""Preset and export prediction models."""
+"""Preset and export prediction models."""
 
 from __future__ import annotations
 

@@ -47,8 +47,12 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
             self.assertTrue(tabs._window_prev_button.isHidden())
             self.assertTrue(tabs._window_next_button.isHidden())
             self.assertTrue(tabs._window_section_combo.isHidden())
-            self.assertTrue(tabs._pin_button.isHidden())
-            self.assertFalse(tabs._remove_button.isHidden())
+            self.assertFalse(tabs._actions_button.isHidden())
+            self.assertTrue(tabs._actions_button.isEnabled())
+            self.assertIsNotNone(tabs._pin_action)
+            self.assertIsNotNone(tabs._remove_action)
+            self.assertFalse(tabs._pin_action.isEnabled())
+            self.assertTrue(tabs._remove_action.isEnabled())
             self.assertEqual(3, tabs._asset_list.count())
         finally:
             tabs.close()
@@ -61,6 +65,7 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
         try:
             tabs.set_tabs([], active_asset_id=None, total_count=0, window_start=0, window_size=100)
             self.assertTrue(tabs._asset_list.isHidden())
+            self.assertTrue(tabs._actions_button.isHidden())
             self.assertIn("No assets", tabs._summary_label.text())
         finally:
             tabs.close()
@@ -77,7 +82,12 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
             self.assertFalse(tabs._window_next_button.isHidden())
             self.assertTrue(tabs._window_next_button.isEnabled())
             self.assertFalse(tabs._window_section_combo.isHidden())
-            self.assertEqual("1/2 (1-100)", tabs._window_section_combo.currentText())
+            self.assertFalse(tabs._actions_button.isHidden())
+            self.assertTrue(tabs._actions_button.isEnabled())
+            self.assertTrue(tabs._pin_action.isEnabled())
+            self.assertTrue(tabs._window_label.isHidden())
+            self.assertEqual("1/2", tabs._window_section_combo.currentText())
+            self.assertIn("Showing assets 1-100 of 140", tabs._window_section_combo.toolTip())
             self.assertEqual(100, tabs._asset_list.count())
 
             tabs.set_tabs(self._items(40, start=100), active_asset_id="asset-120", total_count=140, window_start=100, window_size=100)
@@ -86,7 +96,9 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
             self.assertFalse(tabs._window_next_button.isHidden())
             self.assertFalse(tabs._window_next_button.isEnabled())
             self.assertFalse(tabs._window_section_combo.isHidden())
-            self.assertEqual("2/2 (101-140)", tabs._window_section_combo.currentText())
+            self.assertTrue(tabs._window_label.isHidden())
+            self.assertEqual("2/2", tabs._window_section_combo.currentText())
+            self.assertIn("Showing assets 101-140 of 140", tabs._window_section_combo.toolTip())
             self.assertEqual(40, tabs._asset_list.count())
             self.assertEqual("asset-120", tabs.active_asset_id())
         finally:

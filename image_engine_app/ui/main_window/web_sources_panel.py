@@ -1,19 +1,21 @@
-"""Web Sources panel (scaffold).
+"""Web Sources panel.
 
 This is a thin UI shell.
 - UI emits scan/download requests.
 - Controller performs scan/download and calls set_results()/set_status().
 
-Keeping UI dumb makes patches safer.
+Keeping UI simple makes the scan/download workflow safer to maintain.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict
+import re
 import unicodedata
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -53,27 +55,23 @@ class WebSourcesPanel(QFrame):
         self._website = QComboBox(self)
         self._area = QComboBox(self)
         self._saved_page = QComboBox(self)
-        self._scan_btn = QPushButton("Scan Current Page", self)
-        self._diagnose_btn = QPushButton("Network Check", self)
+        self._scan_btn = QPushButton("Scan Page", self)
+        self._scan_saved_btn = QPushButton("Scan Saved", self)
         self._source_more_btn = QToolButton(self)
+        self._url_more_btn = QToolButton(self)
         self._custom_url = QLineEdit(self)
-        self._add_site_btn = QPushButton("Add Website URL", self)
         self._selected_page_hint = QLabel("Choose a website and page to scan.", self)
 
         self._find_index_links_btn = QPushButton("Find Pages", self)
-        self._scan_index_all_btn = QPushButton("Find + Scan First 100", self)
-        self._scan_selected_pages_btn = QPushButton("Scan Selected", self)
         self._index_more_btn = QToolButton(self)
         self._index_keyword = QLineEdit(self)
         self._index_links = QListWidget(self)
-        self._select_index_visible_btn = QToolButton(self)
-        self._clear_index_sel_btn = QToolButton(self)
         self._manual_links = QPlainTextEdit(self)
         self._manual_count = QLabel("0 valid URL(s)", self)
         self._scan_manual_links_btn = QPushButton("Scan List", self)
-        self._clear_manual_links_btn = QToolButton(self)
 
         self._search = QLineEdit(self)
+        self._exclude_keywords = QLineEdit(self)
         self._filter_png = QCheckBox("PNG", self)
         self._filter_gif = QCheckBox("GIF", self)
         self._filter_webp = QCheckBox("WEBP", self)
@@ -83,16 +81,16 @@ class WebSourcesPanel(QFrame):
         self._show_likely = QCheckBox("Show likely links", self)
         self._skip_dupes = QCheckBox("Skip duplicates", self)
         self._allow_zip = QCheckBox("Allow ZIP imports", self)
+        self._filters_btn = QToolButton(self)
 
         self._results = QListWidget(self)
         self._selection_detail = QLabel("Select an item to see its source URL.", self)
         self._status = QLabel("", self)
 
         self._destination_hint = QLabel("Auto destination: Sprite Factory routes downloads into Main / Shiny / Animated / Items.", self)
-        self._download_btn = QPushButton("Download Selected", self)
+        self._download_btn = QPushButton("Download", self)
 
-        self._select_all_btn = QToolButton(self)
-        self._clear_sel_btn = QToolButton(self)
+        self._download_more_btn = QToolButton(self)
 
         self._items: list[WebItem] = []
         self._index_link_items: list[WebIndexLink] = []
@@ -105,7 +103,7 @@ class WebSourcesPanel(QFrame):
     # --- Public API for controller ---
 
     def set_sources(self, *, websites: list[dict], selected_website_id: str | None = None, selected_area_id: str | None = None) -> None:
-        """Populate Website + Area dropdowns.
+        """Populate saved website/page dropdowns.
 
         websites format (dict):
         {"id": str, "name": str, "areas": [{"id": str, "label": str, "url": str}, ...]}
@@ -139,12 +137,38 @@ class WebSourcesPanel(QFrame):
         """Render scan results into the list."""
         self._items = list(results.items)
         self._refresh_list()
+        visible_count = self._results.count()
+        failed_pages = tuple(getattr(results, "failed_pages", ()) or ())
+        failure_note = self._scan_failure_note(failed_pages)
+        failure_tooltip = self._scan_failure_tooltip(failed_pages)
         if not self._items and int(results.filtered_count or 0) > 0:
-            self._status.setText(
-                f"Found 0 item(s); filtered out {results.filtered_count}. Try enabling 'Show likely links'."
+            self._set_status_text(
+                (
+                    f"Found 0 item(s); filtered out {results.filtered_count}. "
+                    f"Open Filters and enable 'Show likely links'.{f' {failure_note}' if failure_note else ''}"
+                ),
+                failure_tooltip,
             )
             return
-        self._status.setText(f"Found {len(self._items)} item(s); filtered out {results.filtered_count}")
+        if not self._items and failed_pages:
+            self._set_status_text(f"Found 0 item(s). {failure_note}", failure_tooltip)
+            return
+        if self._items and visible_count == 0:
+            self._set_status_text(
+                (
+                    f"Found {len(self._items)} item(s), but current search/filter options hide them."
+                    f"{f' {failure_note}' if failure_note else ''}"
+                ),
+                failure_tooltip,
+            )
+            return
+        self._set_status_text(
+            (
+                f"Found {len(self._items)} item(s); filtered out {results.filtered_count}."
+                f"{f' {failure_note}' if failure_note else ''}"
+            ),
+            failure_tooltip,
+        )
 
     def set_index_links(self, links: tuple[WebIndexLink, ...] | list[WebIndexLink]) -> None:
         self._index_link_items = list(links)
@@ -152,14 +176,20 @@ class WebSourcesPanel(QFrame):
         count = len(self._index_link_items)
         self._set_index_controls_enabled(count > 0)
         if count:
+            self._select_visible_index_links()
             self._status.setText(
-                f"Found {count} linked page(s). Use Filter found pages, select what you want, then Scan Selected Pages."
+                f"Found {count} linked page(s). Filter the list, select what you want, then scan selected pages."
             )
         else:
-            self._status.setText("Found 0 linked pages. Try a broader index page or use Scan Current Page for this page.")
+            self._status.setText("Found 0 linked pages. Try Scan Page for this page or choose a broader index page.")
 
     def set_status(self, msg: str) -> None:
-        self._status.setText(msg)
+        text = str(msg)
+        self._set_status_text(text, text if len(text) > 120 else "")
+
+    def _set_status_text(self, text: str, tooltip: str = "") -> None:
+        self._status.setText(str(text))
+        self._status.setToolTip(str(tooltip or ""))
 
     def sources_registry(self) -> list[dict]:
         registry: list[dict] = []
@@ -226,8 +256,8 @@ class WebSourcesPanel(QFrame):
     def _apply_web_sources_object_names(self) -> None:
         for button in (
             self._scan_btn,
+            self._scan_saved_btn,
             self._find_index_links_btn,
-            self._scan_selected_pages_btn,
             self._scan_manual_links_btn,
             self._download_btn,
         ):
@@ -238,19 +268,35 @@ class WebSourcesPanel(QFrame):
 
     def _build_ui(self) -> None:
         self.setObjectName("webSourcesCard")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShape(QFrame.Shape.NoFrame)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
-        outer.setSpacing(7)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(8)
 
         outer.addWidget(self._build_source_section())
+        outer.addWidget(self._build_saved_section())
         outer.addWidget(self._build_pages_section())
         outer.addWidget(self._build_results_section(), 1)
         outer.addLayout(self._build_download_footer())
 
         self._status.setObjectName("shellHint")
         outer.addWidget(self._status)
+
+        # These controls are internal state for menus/filters, not direct layout widgets.
+        # Hide them so Qt never paints a stray control at (0, 0).
+        for orphan in (
+            self._saved_page,
+            self._show_likely,
+            self._skip_dupes,
+            self._allow_zip,
+            self._filter_png,
+            self._filter_gif,
+            self._filter_webp,
+            self._filter_jpg,
+            self._filter_zip,
+        ):
+            orphan.hide()
 
         self._website.currentIndexChanged.connect(lambda _=None: self._on_website_changed())
         self._saved_page.currentIndexChanged.connect(lambda _=None: self._select_saved_page())
@@ -262,120 +308,133 @@ class WebSourcesPanel(QFrame):
 
     def _build_source_section(self) -> QFrame:
         section, body = self._section_card(
-            "1. Choose Saved Page",
-            "Pick any saved page, then scan it directly.",
+            "1. Scan Pages",
+            "Start here. Scan one page, or scan many page URLs at once.",
+        )
+
+        single_title = QLabel("Single page", self)
+        single_title.setObjectName("shellTitle")
+        body.addWidget(single_title)
+
+        custom = QHBoxLayout()
+        custom.setSpacing(8)
+        self._custom_url.setPlaceholderText("Paste one page URL, e.g. https://example.com/sprites")
+        self._custom_url.textChanged.connect(lambda _=None: self._update_selected_page_hint())
+        self._scan_btn.clicked.connect(self._emit_url_scan)
+        custom.addWidget(self._custom_url, 1)
+        custom.addWidget(self._scan_btn)
+        self._configure_more_button(
+            self._url_more_btn,
+            [
+                ("Save URL as Page", self._add_custom_website),
+                ("Clear URL", self._clear_url),
+                ("Clear Page List", self._clear_manual_links),
+                ("Check Pasted URL", self._emit_custom_url_network_diagnostics),
+            ],
+        )
+        custom.addWidget(self._url_more_btn)
+        body.addLayout(custom)
+
+        manual_header = QHBoxLayout()
+        manual_title = QLabel("Multiple pages", self)
+        manual_title.setObjectName("shellTitle")
+        manual_header.addWidget(manual_title)
+        manual_hint = QLabel("Paste one full URL per line. These do not need to be saved first.", self)
+        manual_hint.setObjectName("shellHint")
+        manual_header.addWidget(manual_hint, 1)
+        self._manual_count.setObjectName("shellHint")
+        manual_header.addWidget(self._manual_count)
+        body.addLayout(manual_header)
+
+        self._manual_links.setPlaceholderText(
+            "https://example.com/sprites/gen-1\nhttps://another-site.example/sprites"
+        )
+        self._manual_links.setFixedHeight(76)
+        self._manual_links.textChanged.connect(self._update_manual_link_count)
+        body.addWidget(self._manual_links)
+
+        manual_actions = QHBoxLayout()
+        manual_actions.addStretch(1)
+        self._scan_manual_links_btn.clicked.connect(self._emit_manual_page_scan)
+        manual_actions.addWidget(self._scan_manual_links_btn)
+        body.addLayout(manual_actions)
+
+        return section
+
+    def _build_saved_section(self) -> QFrame:
+        section, body = self._section_card(
+            "2. Saved Shortcuts",
+            "Reusable pages you saved from the URL box.",
         )
 
         picker_row = QHBoxLayout()
-        picker_row.setSpacing(6)
+        picker_row.setSpacing(8)
+        picker_row.addLayout(self._labeled_control("Website", self._website), 1)
+        picker_row.addLayout(self._labeled_control("Saved page", self._area), 2)
 
-        saved_box = self._labeled_control("Saved page", self._saved_page)
-        picker_row.addLayout(saved_box, 1)
+        self._scan_saved_btn.clicked.connect(self._emit_saved_page_scan)
+        picker_row.addWidget(self._scan_saved_btn, 0, Qt.AlignmentFlag.AlignBottom)
 
-        self._scan_btn.clicked.connect(self._emit_scan)
-        picker_row.addWidget(self._scan_btn)
-
-        self._diagnose_btn.clicked.connect(self._emit_network_diagnostics)
         self._configure_more_button(
             self._source_more_btn,
             [
-                ("Network Check", self._emit_network_diagnostics),
+                ("Scan All Saved", self._emit_saved_pages_scan),
                 ("Remove Saved Page", self._remove_selected_area),
                 ("Remove Website", self._remove_selected_website),
+                ("Check Saved Page", self._emit_saved_page_network_diagnostics),
             ],
         )
-        picker_row.addWidget(self._source_more_btn)
-
+        picker_row.addWidget(self._source_more_btn, 0, Qt.AlignmentFlag.AlignBottom)
         body.addLayout(picker_row)
 
         self._selected_page_hint.setObjectName("shellHint")
         body.addWidget(self._selected_page_hint)
-
-        custom = QHBoxLayout()
-        custom.setSpacing(6)
-        self._custom_url.setPlaceholderText("Paste direct page or index URL, e.g. https://example.com/sprites")
-        self._custom_url.textChanged.connect(lambda _=None: self._update_selected_page_hint())
-        self._add_site_btn.clicked.connect(self._add_custom_website)
-        custom.addWidget(QLabel("URL:", self))
-        custom.addWidget(self._custom_url, 1)
-        self._add_site_btn.setText("Save Page")
-        custom.addWidget(self._add_site_btn)
-        body.addLayout(custom)
-
         return section
 
     def _build_pages_section(self) -> QFrame:
         section, body = self._section_card(
-            "2. Pages to Scan",
-            "Find category pages from an index, or paste a manual list.",
+            "3. Find Linked Pages",
+            "Optional. Use this when a page is an index and you want to choose pages inside it.",
         )
 
         index_header = QHBoxLayout()
-        index_title = QLabel("Index pages", self)
+        index_title = QLabel("Linked pages", self)
         index_title.setObjectName("shellTitle")
         index_header.addWidget(index_title)
-        index_hint = QLabel("Find page links, filter them, then scan only what you need.", self)
+        index_hint = QLabel("Uses the pasted URL first, otherwise the selected saved page.", self)
         index_hint.setObjectName("shellHint")
         index_header.addWidget(index_hint, 1)
         self._find_index_links_btn.clicked.connect(self._emit_index_links_scan)
-        self._scan_index_all_btn.clicked.connect(self._emit_index_scan_all)
-        self._scan_selected_pages_btn.clicked.connect(self._emit_multi_page_scan)
         index_header.addWidget(self._find_index_links_btn)
-        index_header.addWidget(self._scan_selected_pages_btn)
         self._configure_more_button(
             self._index_more_btn,
             [
-                ("Find + Scan First 100", self._emit_index_scan_all),
+                ("Scan Selected Links", self._emit_multi_page_scan),
+                ("Find and Scan First 100", self._emit_index_scan_all),
+                ("Select Visible Links", self._select_visible_index_links),
+                ("Clear Link Selection", self._index_links.clearSelection),
+                ("Clear Linked Pages", self._clear_found_pages),
             ],
         )
         index_header.addWidget(self._index_more_btn)
         body.addLayout(index_header)
 
         index_filter = QHBoxLayout()
-        self._index_keyword.setPlaceholderText("Filter found pages: gen 1, home, animation...")
+        self._index_keyword.setPlaceholderText("Search linked pages, e.g. gen 1, home, animation...")
         self._index_keyword.textChanged.connect(lambda _=None: self._refresh_index_link_list())
-        self._select_index_visible_btn.setText("Select")
-        self._select_index_visible_btn.clicked.connect(self._select_visible_index_links)
-        self._clear_index_sel_btn.setText("Clear")
-        self._clear_index_sel_btn.clicked.connect(self._index_links.clearSelection)
         index_filter.addWidget(self._index_keyword, 1)
-        index_filter.addWidget(self._select_index_visible_btn)
-        index_filter.addWidget(self._clear_index_sel_btn)
         body.addLayout(index_filter)
 
         self._index_links.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self._index_links.setFixedHeight(68)
+        self._index_links.setFixedHeight(96)
         body.addWidget(self._index_links)
-
-        manual_header = QHBoxLayout()
-        manual_title = QLabel("Manual page URLs", self)
-        manual_title.setObjectName("shellTitle")
-        manual_header.addWidget(manual_title)
-        manual_hint = QLabel("One URL per line.", self)
-        manual_hint.setObjectName("shellHint")
-        manual_header.addWidget(manual_hint, 1)
-        self._manual_count.setObjectName("shellHint")
-        manual_header.addWidget(self._manual_count)
-        self._scan_manual_links_btn.clicked.connect(self._emit_manual_page_scan)
-        manual_header.addWidget(self._scan_manual_links_btn)
-        self._clear_manual_links_btn.setText("Clear")
-        self._clear_manual_links_btn.clicked.connect(self._clear_manual_links)
-        manual_header.addWidget(self._clear_manual_links_btn)
-        body.addLayout(manual_header)
-
-        self._manual_links.setPlaceholderText(
-            "https://example.com/sprites/gen-1\nhttps://example.com/sprites/gen-2"
-        )
-        self._manual_links.setFixedHeight(50)
-        self._manual_links.textChanged.connect(self._update_manual_link_count)
-        body.addWidget(self._manual_links)
 
         return section
 
     def _build_results_section(self) -> QFrame:
         section, body = self._section_card(
-            "3. Found Files",
-            "Filter scan results, select the files you want, then download them into the workspace.",
+            "4. Found Files",
+            "Search scan results, select the files you want, then download them into the workspace.",
         )
 
         options = QHBoxLayout()
@@ -383,36 +442,41 @@ class WebSourcesPanel(QFrame):
         self._show_likely.setChecked(False)
         self._skip_dupes.setChecked(True)
         self._allow_zip.setChecked(True)
-        options.addWidget(self._show_likely)
-        options.addWidget(self._skip_dupes)
-        options.addWidget(self._allow_zip)
-        options.addStretch(1)
-        body.addLayout(options)
 
         filt = QHBoxLayout()
         filt.setSpacing(6)
-        self._search.setPlaceholderText("Search filename, URL, source page...")
+        self._search.setPlaceholderText("Search results by filename, URL, or source page...")
         self._search.textChanged.connect(lambda _: self._refresh_list())
+        self._exclude_keywords.setPlaceholderText("Exclude words, e.g. shiny, thumb")
+        self._exclude_keywords.textChanged.connect(lambda _: self._refresh_list())
         for cb in (self._filter_png, self._filter_gif, self._filter_webp, self._filter_jpg, self._filter_zip):
             cb.setChecked(True)
             cb.stateChanged.connect(lambda _=None: self._refresh_list())
 
-        filt.addWidget(QLabel("Filter:", self))
-        filt.addWidget(self._filter_png)
-        filt.addWidget(self._filter_gif)
-        filt.addWidget(self._filter_webp)
-        filt.addWidget(self._filter_jpg)
-        filt.addWidget(self._filter_zip)
-        filt.addSpacing(10)
+        search_label = QLabel("Search results", self)
+        search_label.setObjectName("shellHint")
+        filt.addWidget(search_label)
         filt.addWidget(self._search, 1)
+        exclude_label = QLabel("Exclude words", self)
+        exclude_label.setObjectName("shellHint")
+        filt.addWidget(exclude_label)
+        filt.addWidget(self._exclude_keywords, 0)
 
-        self._select_all_btn.setText("Select All")
-        self._select_all_btn.clicked.connect(self._select_all_visible)
-        filt.addWidget(self._select_all_btn)
-
-        self._clear_sel_btn.setText("Clear")
-        self._clear_sel_btn.clicked.connect(self._clear_selection)
-        filt.addWidget(self._clear_sel_btn)
+        filters_menu = QMenu(self._filters_btn)
+        filters_menu.addAction(self._show_likely_action())
+        filters_menu.addSeparator()
+        filters_menu.addAction(self._checkbox_action(self._filter_png))
+        filters_menu.addAction(self._checkbox_action(self._filter_gif))
+        filters_menu.addAction(self._checkbox_action(self._filter_webp))
+        filters_menu.addAction(self._checkbox_action(self._filter_jpg))
+        filters_menu.addAction(self._checkbox_action(self._filter_zip))
+        filters_menu.addSeparator()
+        filters_menu.addAction(self._checkbox_action(self._skip_dupes))
+        filters_menu.addAction(self._checkbox_action(self._allow_zip))
+        self._filters_btn.setText("Filters")
+        self._filters_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._filters_btn.setMenu(filters_menu)
+        filt.addWidget(self._filters_btn)
 
         body.addLayout(filt)
 
@@ -433,6 +497,16 @@ class WebSourcesPanel(QFrame):
         self._destination_hint.setObjectName("shellHint")
         bottom.addWidget(self._destination_hint, 1)
 
+        self._configure_more_button(
+            self._download_more_btn,
+            [
+                ("Select All Results", self._select_all_visible),
+                ("Clear Result Selection", self._clear_selection),
+                ("Clear Found Files", self._clear_found_files),
+            ],
+        )
+        bottom.addWidget(self._download_more_btn)
+
         self._download_btn.clicked.connect(self._emit_download)
         bottom.addWidget(self._download_btn)
 
@@ -441,6 +515,7 @@ class WebSourcesPanel(QFrame):
     def _section_card(self, title: str, hint: str) -> tuple[QFrame, QVBoxLayout]:
         section = QFrame(self)
         section.setObjectName("webSourcesSectionCard")
+        section.setFrameShape(QFrame.Shape.NoFrame)
         layout = QVBoxLayout(section)
         layout.setContentsMargins(7, 6, 7, 6)
         layout.setSpacing(5)
@@ -474,6 +549,19 @@ class WebSourcesPanel(QFrame):
         for label, callback in actions:
             menu.addAction(label, callback)  # type: ignore[arg-type]
         button.setMenu(menu)
+
+    def _checkbox_action(self, checkbox: QCheckBox):
+        action = QAction(checkbox.text(), self)
+        action.setCheckable(True)
+        action.setChecked(checkbox.isChecked())
+        action.toggled.connect(checkbox.setChecked)
+        checkbox.stateChanged.connect(lambda _=None, action=action, checkbox=checkbox: action.setChecked(checkbox.isChecked()))
+        return action
+
+    def _show_likely_action(self):
+        action = self._checkbox_action(self._show_likely)
+        action.setText("Show likely links")
+        return action
 
     def _rebuild_areas(self, selected_area_id: str | None = None) -> None:
         self._area.clear()
@@ -602,24 +690,36 @@ class WebSourcesPanel(QFrame):
     def _emit_scan(self) -> None:
         custom_url = self._custom_url.text().strip()
         if custom_url:
-            normalized = self._normalize_custom_url(custom_url)
-            if normalized is None:
-                self.set_status("Invalid URL. Use http(s)://domain/path.")
-                return
-
-            payload = {
-                "area_url": normalized[0],
-                "website_id": None,
-                "area_id": None,
-                "smart": asdict(self.smart_options()),
-            }
-            self.set_status(f"Scanning custom URL: {normalized[0]}")
-            self.scan_requested.emit(payload)
+            self._emit_url_scan()
             return
 
+        self._emit_saved_page_scan()
+
+    def _emit_url_scan(self) -> None:
+        custom_url = self._custom_url.text().strip()
+        if not custom_url:
+            self.set_status("Paste a URL first, or use Scan Saved for saved pages.")
+            return
+
+        normalized = self._normalize_custom_url(custom_url)
+        if normalized is None:
+            self.set_status("Invalid URL. Use http(s)://domain/path.")
+            return
+
+        payload = {
+            "area_url": normalized[0],
+            "website_id": None,
+            "area_id": None,
+            "smart": asdict(self.smart_options()),
+        }
+        self._clear_result_text_filters()
+        self.set_status(f"Scanning URL: {normalized[0]}")
+        self.scan_requested.emit(payload)
+
+    def _emit_saved_page_scan(self) -> None:
         a = self._area.currentData()
         if not isinstance(a, dict) or not a.get("url"):
-            self.set_status("Pick a Website + Area first.")
+            self.set_status("Choose a saved page first.")
             return
 
         website_id, area_id = self.selected_source_ids()
@@ -629,7 +729,8 @@ class WebSourcesPanel(QFrame):
             "area_id": area_id,
             "smart": asdict(self.smart_options()),
         }
-        self.set_status("Scanning...")
+        self._clear_result_text_filters()
+        self.set_status(f"Scanning saved page: {str(a['url'])}")
         self.scan_requested.emit(payload)
 
     def _emit_index_links_scan(self) -> None:
@@ -649,6 +750,54 @@ class WebSourcesPanel(QFrame):
         self.set_status(f"Finding linked pages: {payload['index_url']}")
         self.index_links_requested.emit(payload)
 
+    def _emit_saved_pages_scan(self) -> None:
+        links: list[dict] = []
+        seen_urls: set[str] = set()
+        for website_index in range(self._website.count()):
+            website = self._website.itemData(website_index)
+            if not isinstance(website, dict):
+                continue
+            areas = website.get("areas")
+            if not isinstance(areas, list):
+                continue
+            for area in areas:
+                if not isinstance(area, dict):
+                    continue
+                url = str(area.get("url", "")).strip()
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                links.append(
+                    {
+                        "label": str(area.get("label", "")).strip() or self._compact_area_label("", url),
+                        "url": url,
+                        "source_page": None,
+                    }
+                )
+
+        if not links:
+            self.set_status("Save at least one website page before scanning all saved pages.")
+            return
+
+        original_count = len(links)
+        links = self._cap_link_payloads_with_warning(links)
+        if not links:
+            return
+
+        website_id, area_id = self.selected_source_ids()
+        payload = {
+            "pages": links,
+            "website_id": website_id,
+            "area_id": area_id,
+            "smart": asdict(self.smart_options()),
+        }
+        if original_count > len(links):
+            self.set_status(f"Scanning first {len(links)} of {original_count} saved page(s)...")
+        else:
+            self.set_status(f"Scanning {len(links)} saved page(s)...")
+        self._clear_result_text_filters()
+        self.multi_scan_requested.emit(payload)
+
     def _emit_index_scan_all(self) -> None:
         area_payload = self._current_area_payload(status_action="scan linked pages")
         if area_payload is None:
@@ -663,15 +812,18 @@ class WebSourcesPanel(QFrame):
         self._index_link_items = []
         self._refresh_index_link_list()
         self._set_index_controls_enabled(False)
+        self._clear_result_text_filters()
         self.set_status(f"Finding and scanning linked pages: {payload['index_url']}")
         self.index_scan_all_requested.emit(payload)
 
     def _emit_multi_page_scan(self) -> None:
         if not self._index_link_items:
-            self.set_status("Click Find Pages From Index first, then select pages to scan.")
+            self.set_status("Click Find Pages first, then scan the linked pages you want.")
             return
 
         selected_links = self._selected_index_link_payloads()
+        if not selected_links:
+            selected_links = self._visible_index_link_payloads()
         if not selected_links:
             self.set_status("Select one or more linked pages first.")
             return
@@ -691,6 +843,7 @@ class WebSourcesPanel(QFrame):
             self.set_status(f"Scanning first {len(selected_links)} of {original_count} linked page(s)...")
         else:
             self.set_status(f"Scanning {len(selected_links)} linked page(s)...")
+        self._clear_result_text_filters()
         self.multi_scan_requested.emit(payload)
 
     def _emit_manual_page_scan(self) -> None:
@@ -725,28 +878,32 @@ class WebSourcesPanel(QFrame):
             message = f"Scanning {len(payload_links)} manual page URL(s)"
         if skipped_parts:
             message = f"{message}; skipped {', '.join(skipped_parts)}"
+        self._clear_result_text_filters()
         self.set_status(f"{message}...")
         self.multi_scan_requested.emit(payload)
 
-    def _emit_network_diagnostics(self) -> None:
+    def _emit_custom_url_network_diagnostics(self) -> None:
         custom_url = self._custom_url.text().strip()
-        if custom_url:
-            normalized = self._normalize_custom_url(custom_url)
-            if normalized is None:
-                self.set_status("Invalid URL. Use http(s)://domain/path.")
-                return
-            payload = {
-                "area_url": normalized[0],
-                "website_id": None,
-                "area_id": None,
-            }
-            self.set_status(f"Running network diagnostics for custom URL: {normalized[0]}")
-            self.network_diagnostics_requested.emit(payload)
+        if not custom_url:
+            self.set_status("Paste a URL before running a pasted URL network check.")
             return
 
+        normalized = self._normalize_custom_url(custom_url)
+        if normalized is None:
+            self.set_status("Invalid URL. Use http(s)://domain/path.")
+            return
+        payload = {
+            "area_url": normalized[0],
+            "website_id": None,
+            "area_id": None,
+        }
+        self.set_status(f"Running network diagnostics for pasted URL: {normalized[0]}")
+        self.network_diagnostics_requested.emit(payload)
+
+    def _emit_saved_page_network_diagnostics(self) -> None:
         a = self._area.currentData()
         if not isinstance(a, dict) or not a.get("url"):
-            self.set_status("Enter a custom URL or pick a Website + Area first.")
+            self.set_status("Choose a saved page before running a saved page network check.")
             return
 
         website_id, area_id = self.selected_source_ids()
@@ -755,7 +912,7 @@ class WebSourcesPanel(QFrame):
             "website_id": website_id,
             "area_id": area_id,
         }
-        self.set_status(f"Running network diagnostics for area: {str(a['url'])}")
+        self.set_status(f"Running network diagnostics for saved page: {str(a['url'])}")
         self.network_diagnostics_requested.emit(payload)
 
     def _current_area_payload(self, *, status_action: str) -> dict | None:
@@ -773,7 +930,7 @@ class WebSourcesPanel(QFrame):
 
         area = self._area.currentData()
         if not isinstance(area, dict) or not area.get("url"):
-            self.set_status(f"Enter a custom URL or pick a Website + Area to {status_action}.")
+            self.set_status(f"Enter a URL or pick a saved page to {status_action}.")
             return None
 
         website_id, area_id = self.selected_source_ids()
@@ -831,6 +988,23 @@ class WebSourcesPanel(QFrame):
         self._manual_links.clear()
         self._update_manual_link_count()
 
+    def _clear_url(self) -> None:
+        self._custom_url.clear()
+        self._update_selected_page_hint()
+        self.set_status("URL cleared.")
+
+    def _clear_found_pages(self) -> None:
+        self._index_link_items = []
+        self._refresh_index_link_list()
+        self._set_index_controls_enabled(False)
+        self.set_status("Linked pages cleared.")
+
+    def _clear_found_files(self) -> None:
+        self._items = []
+        self._refresh_list()
+        self._selection_detail.setText("Select an item to see its source URL.")
+        self.set_status("Found files cleared.")
+
     def _emit_download(self) -> None:
         selected = self._selected_items_payloads()
         if not selected:
@@ -883,40 +1057,9 @@ class WebSourcesPanel(QFrame):
         existing_area_ids = {str(a.get("id", "")).strip() for a in areas if isinstance(a, dict)}
         existing_urls = {str(a.get("url", "")).strip() for a in areas if isinstance(a, dict)}
 
-        created_count = 0
         selected_area_id: str | None = None
-        for candidate in self._build_area_candidates(normalized_url):
-            candidate_url = str(candidate.get("url", "")).strip()
-            if not candidate_url:
-                continue
-
-            if candidate_url in existing_urls:
-                if candidate_url == normalized_url:
-                    existing_match = next(
-                        (
-                            area
-                            for area in areas
-                            if isinstance(area, dict) and str(area.get("url", "")).strip() == candidate_url
-                        ),
-                        None,
-                    )
-                    if isinstance(existing_match, dict):
-                        selected_area_id = str(existing_match.get("id", "")).strip() or selected_area_id
-                continue
-
-            area_base = str(candidate.get("base", "")).strip() or "area"
-            area_id = self._next_unique_id(area_base, existing_area_ids)
-            area_label = str(candidate.get("label", "")).strip() or "Area"
-
-            areas.append({"id": area_id, "label": area_label, "url": candidate_url})
-            existing_area_ids.add(area_id)
-            existing_urls.add(candidate_url)
-            created_count += 1
-
-            if candidate_url == normalized_url:
-                selected_area_id = area_id
-
-        if selected_area_id is None:
+        created = False
+        if normalized_url in existing_urls:
             selected_area = next(
                 (
                     area
@@ -927,16 +1070,26 @@ class WebSourcesPanel(QFrame):
             )
             if isinstance(selected_area, dict):
                 selected_area_id = str(selected_area.get("id", "")).strip() or None
+        else:
+            parsed = urlparse(normalized_url)
+            path_parts = [part for part in str(parsed.path or "").split("/") if part]
+            area_label = self._path_label_from_parts(path_parts)
+            if parsed.query:
+                area_label = f"{area_label} (Query)"
+            area_id = self._next_unique_id(self._slugify(area_label) or "page", existing_area_ids)
+            areas.append({"id": area_id, "label": area_label, "url": normalized_url})
+            selected_area_id = area_id
+            created = True
 
         source_id = str(source.get("id", "")).strip()
         self.set_sources(websites=sources, selected_website_id=source_id, selected_area_id=selected_area_id)
         self._custom_url.clear()
         self.registry_changed.emit(self.sources_registry())
 
-        if created_count > 0:
-            self.set_status(f"Added custom website with {created_count} area(s): {normalized_url}")
+        if created:
+            self.set_status(f"Saved page: {normalized_url}")
         else:
-            self.set_status("Website URL already exists in the list.")
+            self.set_status("Page URL already exists in the saved list.")
 
     @staticmethod
     def _normalize_custom_url(raw_url: str) -> tuple[str, str] | None:
@@ -957,66 +1110,6 @@ class WebSourcesPanel(QFrame):
             host = host[4:]
 
         return candidate, host
-
-    @classmethod
-    def _build_area_candidates(cls, normalized_url: str) -> list[dict]:
-        parsed = urlparse(normalized_url)
-        scheme = parsed.scheme or "https"
-        netloc = parsed.netloc
-        if not netloc:
-            return []
-
-        path_parts = [part for part in str(parsed.path or "").split("/") if part]
-        candidates: list[dict] = [
-            {
-                "base": "root",
-                "label": "Root",
-                "url": f"{scheme}://{netloc}/",
-            }
-        ]
-
-        for index in range(1, len(path_parts) + 1):
-            prefix_parts = path_parts[:index]
-            encoded_parts = [quote(part, safe="-._~") for part in prefix_parts]
-            area_url = f"{scheme}://{netloc}/{'/'.join(encoded_parts)}"
-            label = cls._path_label_from_parts(prefix_parts)
-            base_parts = [cls._slugify(part) for part in prefix_parts]
-            base = "_".join(part for part in base_parts if part) or f"area_{index}"
-            candidates.append(
-                {
-                    "base": base,
-                    "label": label,
-                    "url": area_url,
-                }
-            )
-
-        if parsed.query:
-            query_path = parsed.path or "/"
-            query_url = f"{scheme}://{netloc}{query_path}?{parsed.query}"
-            if path_parts:
-                query_label = f"{cls._path_label_from_parts(path_parts)} (Query)"
-                query_base_parts = [cls._slugify(part) for part in path_parts]
-                query_base = "_".join(part for part in query_base_parts if part) or "root"
-            else:
-                query_label = "Root (Query)"
-                query_base = "root"
-            candidates.append(
-                {
-                    "base": f"{query_base}_query",
-                    "label": query_label,
-                    "url": query_url,
-                }
-            )
-
-        deduped: list[dict] = []
-        seen_urls: set[str] = set()
-        for candidate in candidates:
-            url_value = str(candidate.get("url", "")).strip()
-            if not url_value or url_value in seen_urls:
-                continue
-            seen_urls.add(url_value)
-            deduped.append(candidate)
-        return deduped
 
     @staticmethod
     def _friendly_path_segment(segment: str) -> str:
@@ -1248,6 +1341,7 @@ class WebSourcesPanel(QFrame):
     def _refresh_list(self) -> None:
         self._results.clear()
         query = self._search.text().strip().lower()
+        excluded_terms = self._excluded_result_terms()
 
         allow = set()
         if self._filter_png.isChecked():
@@ -1277,6 +1371,8 @@ class WebSourcesPanel(QFrame):
                 continue
             if query and query not in haystack:
                 continue
+            if excluded_terms and any(term in haystack for term in excluded_terms):
+                continue
 
             badge = "DIRECT"
             if item.confidence == Confidence.LIKELY:
@@ -1289,6 +1385,45 @@ class WebSourcesPanel(QFrame):
             lw.setToolTip(item.url)
             lw.setData(Qt.ItemDataRole.UserRole, item)
             self._results.addItem(lw)
+
+    def _excluded_result_terms(self) -> list[str]:
+        raw = self._exclude_keywords.text().strip().lower()
+        if not raw:
+            return []
+        normalized = raw.replace(",", " ").replace(";", " ")
+        return [term for term in normalized.split() if term]
+
+    @staticmethod
+    def _scan_failure_note(failed_pages: tuple[str, ...]) -> str:
+        if not failed_pages:
+            return ""
+        reason = WebSourcesPanel._scan_failure_reason(failed_pages[0])
+        suffix = f" ({reason})" if reason else ""
+        noun = "page" if len(failed_pages) == 1 else "pages"
+        return f"{len(failed_pages)} {noun} failed{suffix}. Hover for details."
+
+    @staticmethod
+    def _scan_failure_tooltip(failed_pages: tuple[str, ...]) -> str:
+        if not failed_pages:
+            return ""
+        lines = ["Failed page details:"]
+        for page in failed_pages[:10]:
+            lines.append(f"- {' '.join(str(page).split())}")
+        if len(failed_pages) > 10:
+            lines.append(f"- ...and {len(failed_pages) - 10} more")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _scan_failure_reason(failure: str) -> str:
+        text = " ".join(str(failure or "").split())
+        http_match = re.search(r"HTTP\s+(\d{3})(?:\s*\(([^)]+)\))?", text, flags=re.IGNORECASE)
+        if http_match:
+            code = http_match.group(1)
+            label = " ".join(str(http_match.group(2) or "").split())
+            return f"HTTP {code}{f' {label}' if label else ''}"
+        if "timeout" in text.lower() or "timed out" in text.lower():
+            return "timeout"
+        return ""
 
     def _refresh_index_link_list(self) -> None:
         self._index_links.clear()
@@ -1316,15 +1451,29 @@ class WebSourcesPanel(QFrame):
                 out.append(asdict(link))
         return out
 
+    def _visible_index_link_payloads(self) -> list[dict]:
+        out: list[dict] = []
+        for row in range(self._index_links.count()):
+            item = self._index_links.item(row)
+            if item is None:
+                continue
+            link = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(link, WebIndexLink):
+                out.append(asdict(link))
+        return out
+
     def _select_visible_index_links(self) -> None:
         self._index_links.selectAll()
+
+    def _clear_result_text_filters(self) -> None:
+        if self._search.text():
+            self._search.clear()
+        if self._exclude_keywords.text():
+            self._exclude_keywords.clear()
 
     def _set_index_controls_enabled(self, enabled: bool) -> None:
         for widget in (
             self._index_keyword,
-            self._scan_selected_pages_btn,
-            self._select_index_visible_btn,
-            self._clear_index_sel_btn,
         ):
             widget.setEnabled(bool(enabled))
 

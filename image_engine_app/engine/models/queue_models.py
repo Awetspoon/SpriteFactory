@@ -1,4 +1,4 @@
-﻿"""Batch queue and progress models."""
+"""Batch queue and progress models."""
 
 from __future__ import annotations
 

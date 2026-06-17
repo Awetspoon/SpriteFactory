@@ -12,8 +12,11 @@ if (!(Test-Path ".\.venv")) {
 
 . .\.venv\Scripts\Activate.ps1
 
-python -m pip install --upgrade pip
-python -m pip install -e .
+python -c "import image_engine_app, PIL, PySide6" 2>$null
+$depsOk = $LASTEXITCODE -eq 0
+if (-not $depsOk) {
+  python -m pip install -e .
+}
 
 python -m image_engine_app.app.audit --app-data-dir .\.local\audit
 

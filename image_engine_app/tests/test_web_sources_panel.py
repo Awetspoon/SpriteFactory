@@ -32,7 +32,17 @@ class WebSourcesPanelTests(unittest.TestCase):
         panel = WebSourcesPanel()
         return app, owns_app, panel
 
-    def test_add_custom_website_url_builds_switchable_path_areas_and_dedupes(self) -> None:
+    def test_menu_only_actions_do_not_leave_floating_button_widgets(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            self.assertFalse(hasattr(panel, "_scan_selected_pages_btn"))
+            self.assertFalse(hasattr(panel, "_clear_manual_links_btn"))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_add_custom_website_url_saves_exact_page_and_dedupes(self) -> None:
         app, owns_app, panel = self._setup_panel()
         panel.set_sources(
             websites=[
@@ -55,29 +65,25 @@ class WebSourcesPanelTests(unittest.TestCase):
 
         try:
             panel._custom_url.setText("https://example.com/sprites/pokemon/gen1?form=alt")
-            panel._add_site_btn.click()
+            panel._add_custom_website()
 
             registry = panel.sources_registry()
             example = next((entry for entry in registry if entry.get("name") == "example.com"), None)
             self.assertIsNotNone(example)
             areas = example.get("areas") if isinstance(example, dict) else []
-            self.assertEqual(5, len(areas))
+            self.assertEqual(1, len(areas))
 
             area_urls = [str(area.get("url", "")) for area in areas if isinstance(area, dict)]
-            self.assertIn("https://example.com/", area_urls)
-            self.assertIn("https://example.com/sprites", area_urls)
-            self.assertIn("https://example.com/sprites/pokemon", area_urls)
-            self.assertIn("https://example.com/sprites/pokemon/gen1", area_urls)
-            self.assertIn("https://example.com/sprites/pokemon/gen1?form=alt", area_urls)
+            self.assertEqual(["https://example.com/sprites/pokemon/gen1?form=alt"], area_urls)
 
             panel._custom_url.setText("https://example.com/sprites/pokemon/gen1?form=alt")
-            panel._add_site_btn.click()
+            panel._add_custom_website()
 
             registry_after = panel.sources_registry()
             example_after = next((entry for entry in registry_after if entry.get("name") == "example.com"), None)
             self.assertIsNotNone(example_after)
             areas_after = example_after.get("areas") if isinstance(example_after, dict) else []
-            self.assertEqual(5, len(areas_after))
+            self.assertEqual(1, len(areas_after))
             self.assertGreaterEqual(len(changes), 2)
         finally:
             panel.close()
@@ -113,20 +119,57 @@ class WebSourcesPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_added_website_areas_use_generic_url_path_labels(self) -> None:
+    def test_added_website_page_uses_generic_url_path_label(self) -> None:
         app, owns_app, panel = self._setup_panel()
         try:
             panel._custom_url.setText("https://example.com/sprites/pokemon/gen1?form=alt")
-            panel._add_site_btn.click()
+            panel._add_custom_website()
 
             labels = [panel._area.itemText(index) for index in range(panel._area.count())]
-            self.assertIn("Root", labels)
-            self.assertIn("Sprites", labels)
-            self.assertIn("Sprites / Pokemon", labels)
-            self.assertIn("Sprites / Pokemon / Gen1", labels)
-            self.assertIn("Sprites / Pokemon / Gen1 (Query)", labels)
+            self.assertEqual(["Sprites / Pokemon / Gen1 (Query)"], labels)
             self.assertIn("Selected page:", panel._selected_page_hint.text())
             self.assertIn("https://example.com/sprites/pokemon/gen1?form=alt", panel._selected_page_hint.text())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_scan_all_saved_pages_emits_multi_scan_for_every_saved_page(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel.set_sources(
+                websites=[
+                    {
+                        "id": "example_com",
+                        "name": "example.com",
+                        "areas": [
+                            {"id": "root", "label": "Root", "url": "https://example.com/"},
+                            {"id": "sprites", "label": "Sprites", "url": "https://example.com/sprites"},
+                        ],
+                    },
+                    {
+                        "id": "other_com",
+                        "name": "other.com",
+                        "areas": [
+                            {"id": "free", "label": "Freebies", "url": "https://other.com/freebies"},
+                        ],
+                    },
+                ]
+            )
+
+            panel._emit_saved_pages_scan()
+
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            pages = payload.get("pages") if isinstance(payload, dict) else []
+            self.assertEqual(
+                ["https://example.com/", "https://example.com/sprites", "https://other.com/freebies"],
+                [page.get("url") for page in pages],
+            )
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -175,7 +218,7 @@ class WebSourcesPanelTests(unittest.TestCase):
                     panel._saved_page.setCurrentIndex(index)
                     break
 
-            panel._scan_btn.click()
+            panel._scan_saved_btn.click()
 
             self.assertEqual(1, len(scans))
             payload = scans[0]
@@ -197,7 +240,7 @@ class WebSourcesPanelTests(unittest.TestCase):
 
         try:
             panel._custom_url.setText("example.com/sprites")
-            panel._diagnose_btn.click()
+            panel._emit_custom_url_network_diagnostics()
 
             self.assertEqual(1, len(diagnostics))
             payload = diagnostics[0]
@@ -207,6 +250,83 @@ class WebSourcesPanelTests(unittest.TestCase):
                 self.assertIsNone(payload.get("website_id"))
                 self.assertIsNone(payload.get("area_id"))
             self.assertIn("Running network diagnostics", panel._status.text())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_more_menus_have_section_specific_actions(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+
+        def action_labels(button) -> list[str]:
+            menu = button.menu()
+            self.assertIsNotNone(menu)
+            if menu is None:
+                return []
+            return [action.text() for action in menu.actions() if not action.isSeparator()]
+
+        try:
+            self.assertEqual(
+                ["Save URL as Page", "Clear URL", "Clear Page List", "Check Pasted URL"],
+                action_labels(panel._url_more_btn),
+            )
+            self.assertEqual(
+                ["Scan All Saved", "Remove Saved Page", "Remove Website", "Check Saved Page"],
+                action_labels(panel._source_more_btn),
+            )
+            self.assertEqual(
+                [
+                    "Scan Selected Links",
+                    "Find and Scan First 100",
+                    "Select Visible Links",
+                    "Clear Link Selection",
+                    "Clear Linked Pages",
+                ],
+                action_labels(panel._index_more_btn),
+            )
+            self.assertEqual(
+                ["Select All Results", "Clear Result Selection", "Clear Found Files"],
+                action_labels(panel._download_more_btn),
+            )
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_saved_page_network_diagnostics_ignores_pasted_url(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        diagnostics: list[object] = []
+        panel.network_diagnostics_requested.connect(diagnostics.append)
+
+        try:
+            panel.set_sources(
+                websites=[
+                    {
+                        "id": "example_com",
+                        "name": "example.com",
+                        "areas": [
+                            {
+                                "id": "sprites",
+                                "label": "Sprites",
+                                "url": "https://example.com/sprites",
+                            }
+                        ],
+                    }
+                ],
+                selected_website_id="example_com",
+                selected_area_id="sprites",
+            )
+            panel._custom_url.setText("https://other.example/manual")
+            panel._emit_saved_page_network_diagnostics()
+
+            self.assertEqual(1, len(diagnostics))
+            payload = diagnostics[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                self.assertEqual("https://example.com/sprites", payload.get("area_url"))
+                self.assertEqual("example_com", payload.get("website_id"))
+                self.assertEqual("sprites", payload.get("area_id"))
+            self.assertIn("saved page", panel._status.text())
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -244,7 +364,7 @@ class WebSourcesPanelTests(unittest.TestCase):
             )
             panel._index_keyword.setText("gen 1")
             panel._select_visible_index_links()
-            panel._scan_selected_pages_btn.click()
+            panel._emit_multi_page_scan()
 
             self.assertEqual(1, len(scans))
             payload = scans[0]
@@ -255,6 +375,79 @@ class WebSourcesPanelTests(unittest.TestCase):
                 if isinstance(pages, list):
                     self.assertEqual(1, len(pages))
                     self.assertEqual("HOME Sprites: Gen 1", pages[0].get("label"))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_found_index_links_are_selected_by_default_for_scanning(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel.set_index_links(
+                [
+                    WebIndexLink(
+                        label="HOME Sprites: Gen 1",
+                        url="https://example.com/home-gen-1",
+                        source_page="https://example.com/index",
+                    ),
+                    WebIndexLink(
+                        label="Animations",
+                        url="https://example.com/animations",
+                        source_page="https://example.com/index",
+                    ),
+                ]
+            )
+            panel._emit_multi_page_scan()
+
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                pages = payload.get("pages")
+                self.assertIsInstance(pages, list)
+                if isinstance(pages, list):
+                    self.assertEqual(2, len(pages))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_scan_selected_uses_visible_links_when_selection_was_cleared(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        scans: list[object] = []
+        panel.multi_scan_requested.connect(scans.append)
+
+        try:
+            panel.set_index_links(
+                [
+                    WebIndexLink(
+                        label="HOME Sprites: Gen 1",
+                        url="https://example.com/home-gen-1",
+                        source_page="https://example.com/index",
+                    ),
+                    WebIndexLink(
+                        label="HOME Sprites: Gen 2",
+                        url="https://example.com/home-gen-2",
+                        source_page="https://example.com/index",
+                    ),
+                ]
+            )
+            panel._index_keyword.setText("gen 2")
+            panel._index_links.clearSelection()
+            panel._emit_multi_page_scan()
+
+            self.assertEqual(1, len(scans))
+            payload = scans[0]
+            self.assertIsInstance(payload, dict)
+            if isinstance(payload, dict):
+                pages = payload.get("pages")
+                self.assertIsInstance(pages, list)
+                if isinstance(pages, list):
+                    self.assertEqual(1, len(pages))
+                    self.assertEqual("HOME Sprites: Gen 2", pages[0].get("label"))
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -287,7 +480,7 @@ class WebSourcesPanelTests(unittest.TestCase):
 
             panel.confirm_large_linked_page_scan = confirm  # type: ignore[method-assign]
             try:
-                panel._scan_selected_pages_btn.click()
+                panel._emit_multi_page_scan()
             finally:
                 panel.confirm_large_linked_page_scan = original_confirm  # type: ignore[method-assign]
 
@@ -319,7 +512,7 @@ class WebSourcesPanelTests(unittest.TestCase):
             )
             panel._select_visible_index_links()
             panel.confirm_large_linked_page_scan = lambda *_args, **_kwargs: False  # type: ignore[method-assign]
-            panel._scan_selected_pages_btn.click()
+            panel._emit_multi_page_scan()
 
             self.assertEqual([], scans)
             self.assertIn("cancelled", panel._status.text().lower())
@@ -425,7 +618,7 @@ class WebSourcesPanelTests(unittest.TestCase):
 
         try:
             panel._custom_url.setText("example.com/sprite-index")
-            panel._scan_index_all_btn.click()
+            panel._emit_index_scan_all()
 
             self.assertEqual(1, len(requests))
             payload = requests[0]
@@ -469,6 +662,122 @@ class WebSourcesPanelTests(unittest.TestCase):
             panel.close()
             if owns_app and app is not None:
                 app.quit()
+
+    def test_result_exclude_keywords_hide_matching_names_urls_and_source_pages(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel.set_results(
+                ScanResults(
+                    items=(
+                        WebItem(
+                            url="https://cdn.example.com/bulbasaur.png",
+                            name="bulbasaur.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/home-gen-1",
+                        ),
+                        WebItem(
+                            url="https://cdn.example.com/bulbasaur_shiny.png",
+                            name="bulbasaur_shiny.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/home-gen-1",
+                        ),
+                        WebItem(
+                            url="https://cdn.example.com/charmander.png",
+                            name="charmander.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/shiny-index",
+                        ),
+                    ),
+                    filtered_count=0,
+                )
+            )
+
+            panel._exclude_keywords.setText("shiny")
+
+            self.assertEqual(1, panel._results.count())
+            self.assertIn("bulbasaur.png", panel._results.item(0).text())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_set_results_explains_when_search_filters_hide_all_items(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel._search.setText("missing")
+            panel.set_results(
+                ScanResults(
+                    items=(
+                        WebItem(
+                            url="https://cdn.example.com/bulbasaur.png",
+                            name="bulbasaur.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/home-gen-1",
+                        ),
+                    ),
+                    filtered_count=0,
+                )
+            )
+
+            self.assertEqual(0, panel._results.count())
+            self.assertIn("hide", panel._status.text().lower())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_set_results_reports_failed_pages_from_multi_page_scan(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel.set_results(
+                ScanResults(
+                    items=(
+                        WebItem(
+                            url="https://cdn.example.com/bulbasaur.png",
+                            name="bulbasaur.png",
+                            ext=".png",
+                            confidence=Confidence.DIRECT,
+                            source_page="https://example.com/good",
+                        ),
+                    ),
+                    filtered_count=0,
+                    failed_pages=("https://example.com/slow: timed out",),
+                )
+            )
+
+            self.assertEqual(1, panel._results.count())
+            self.assertIn("1 page failed", panel._status.text())
+            self.assertIn("Hover for details", panel._status.text())
+            self.assertIn("https://example.com/slow", panel._status.toolTip())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_set_results_reports_when_all_pages_failed(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            panel.set_results(
+                ScanResults(
+                    items=(),
+                    filtered_count=0,
+                    failed_pages=("https://example.com/slow: timed out",),
+                )
+            )
+
+            self.assertEqual(0, panel._results.count())
+            self.assertIn("Found 0 item", panel._status.text())
+            self.assertIn("1 page failed", panel._status.text())
+            self.assertIn("https://example.com/slow", panel._status.toolTip())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
     def test_download_area_uses_auto_destination_hint_and_forces_smart_routing(self) -> None:
         app, owns_app, panel = self._setup_panel()
         downloads: list[object] = []
@@ -544,7 +853,7 @@ class WebSourcesPanelTests(unittest.TestCase):
                 self.assertEqual("https://example.com/sprites", payload.get("area_url"))
                 self.assertIsNone(payload.get("website_id"))
                 self.assertIsNone(payload.get("area_id"))
-            self.assertIn("Scanning custom URL", panel._status.text())
+            self.assertIn("Scanning URL", panel._status.text())
         finally:
             panel.close()
             if owns_app and app is not None:

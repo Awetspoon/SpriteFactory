@@ -1,4 +1,4 @@
-﻿"""Session, history, and workspace persistence models."""
+"""Session, history, and workspace persistence models."""
 
 from __future__ import annotations
 

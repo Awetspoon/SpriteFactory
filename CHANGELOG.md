@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2 - 2026-06-17
+- Added a compact, compatibility-aware preset menu to the main editing tools and kept the full Preset Manager available for creating and maintaining advanced user presets.
+- Simplified Batch Manager with focused `Queue` and `Options` menus while preserving isolated preset, background, naming, and export behavior.
+- Rebuilt and hardened Web Sources scanning, filtering, saved-page navigation, multi-page scans, retry handling, failure reporting, and large-result paging.
+- Completed the preview-first shell polish with consistent control geometry, clearer plain-English labels, reduced button clutter, and refreshed helper guidance.
+- Removed obsolete redesign documents, superseded backend/preset UI code, generated files, and dead tests while retaining coverage for the active architecture.
+
 ## 1.2.1 - 2026-06-15
 - Tightened the main shell spacing and control geometry so the preview studio, toolbar, workflow dock, and settings panel feel more consistent.
 - Reworked Web Sources around saved pages, manual page lists, filtered index scanning, and safer scan limits for large sites.

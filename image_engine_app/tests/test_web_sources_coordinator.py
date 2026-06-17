@@ -227,6 +227,20 @@ class _Http403Controller:
         raise RuntimeError("HTTP Error 403: Forbidden")
 
 
+class _Http502Controller:
+    app_paths = None
+
+    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
+        raise RuntimeError("HTTP Error 502: Bad Gateway")
+
+
+class _TimeoutController:
+    app_paths = None
+
+    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
+        raise TimeoutError("timed out")
+
+
 class _MalformedAssetsController(_FakeController):
     def download_web_sources_items(self, *_args, **_kwargs) -> DownloadReport:
         return DownloadReport(
@@ -487,6 +501,68 @@ class WebSourcesCoordinatorRegressionTests(unittest.TestCase):
         latest = window.web_sources_panel.status_messages[-1]
         self.assertIn("Scan failed:", latest)
         self.assertIn("HTTP 403 (Forbidden)", latest)
+
+    def test_scan_http_502_maps_to_server_failure_message(self) -> None:
+        window = _FakeWindow(controller=_Http502Controller())
+        coordinator = WebSourcesCoordinator(window)
+
+        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
+            coordinator_module,
+            "QApplication",
+            _FakeApp,
+        ):
+            coordinator.on_scan_requested(
+                {
+                    "area_url": "https://example.com/gallery",
+                    "website_id": None,
+                    "area_id": None,
+                    "smart": {
+                        "show_likely": False,
+                        "auto_sort": False,
+                        "skip_duplicates": True,
+                        "allow_zip": True,
+                    },
+                }
+            )
+
+        self.assertIsNotNone(window.web_sources_panel.results)
+        assert window.web_sources_panel.results is not None
+        self.assertEqual((), window.web_sources_panel.results.items)
+        self.assertEqual(1, len(window.web_sources_panel.results.failed_pages))
+        self.assertIn("https://example.com/gallery", window.web_sources_panel.results.failed_pages[0])
+        self.assertIn("HTTP 502 (Bad Gateway)", window.web_sources_panel.results.failed_pages[0])
+        self.assertIn("website/server failed", window.web_sources_panel.results.failed_pages[0])
+        self.assertIn("failed page", window.status_updates[-1])
+
+    def test_single_page_timeout_sets_failed_page_results_instead_of_hard_fail(self) -> None:
+        window = _FakeWindow(controller=_TimeoutController())
+        coordinator = WebSourcesCoordinator(window)
+
+        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
+            coordinator_module,
+            "QApplication",
+            _FakeApp,
+        ):
+            coordinator.on_scan_requested(
+                {
+                    "area_url": "https://example.com/gallery",
+                    "website_id": None,
+                    "area_id": None,
+                    "smart": {
+                        "show_likely": False,
+                        "auto_sort": False,
+                        "skip_duplicates": True,
+                        "allow_zip": True,
+                    },
+                }
+            )
+
+        self.assertIsNotNone(window.web_sources_panel.results)
+        assert window.web_sources_panel.results is not None
+        self.assertEqual((), window.web_sources_panel.results.items)
+        self.assertEqual(1, len(window.web_sources_panel.results.failed_pages))
+        self.assertIn("https://example.com/gallery", window.web_sources_panel.results.failed_pages[0])
+        self.assertIn("failed page", window.status_updates[-1])
 
     def test_download_registers_assets_into_workspace(self) -> None:
         window = _FakeWindow(controller=_FakeController())

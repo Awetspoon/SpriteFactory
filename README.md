@@ -2,7 +2,7 @@
 
 Sprite Factory Pro is a Windows desktop app for cleaning, enhancing, previewing, batch-processing, and exporting sprites, GIFs, icons, and image assets.
 
-[Download Latest Release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Release Notes](docs/RELEASE_1.2.1.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
+[Download Latest Release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Release Notes](docs/RELEASE_1.2.2.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ![Sprite Factory Pro main window](docs/sprite-factory-pro-1.2.1-ui.png)
 

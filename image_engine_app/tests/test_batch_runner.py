@@ -314,20 +314,22 @@ class BatchRunnerTests(unittest.TestCase):
             if getattr(event, "event_type", "") == "item_progress" and getattr(event, "stage", "") == "classify":
                 cancel_flag["value"] = True
 
-        report = runner.run(
-            [
-                BatchWorkItem(asset=a1, queue_item=_make_queue(a1, 11)),
-                BatchWorkItem(asset=a2, queue_item=_make_queue(a2, 12)),
-            ],
-            event_callback=on_event,
-            cancel_requested=lambda: bool(cancel_flag["value"]),
-        )
+        with self.assertLogs("image_engine_app.batch.runner", level="WARNING") as logs:
+            report = runner.run(
+                [
+                    BatchWorkItem(asset=a1, queue_item=_make_queue(a1, 11)),
+                    BatchWorkItem(asset=a2, queue_item=_make_queue(a2, 12)),
+                ],
+                event_callback=on_event,
+                cancel_requested=lambda: bool(cancel_flag["value"]),
+            )
 
         self.assertTrue(report.cancelled)
         self.assertEqual(len(report.items), 1)
         self.assertEqual(report.processed_count, 0)
         self.assertEqual(report.failed_count, 0)
         self.assertEqual(report.items[0].queue_item.status, QueueItemStatus.SKIPPED)
+        self.assertIn("Batch item cancelled", "\n".join(logs.output))
         event_types = [getattr(event, "event_type", "") for event in events]
         self.assertIn("item_cancelled", event_types)
         self.assertIn("batch_cancelled", event_types)

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -19,8 +20,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QProgressBar,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -86,6 +89,14 @@ class BatchManagerDialog(QDialog):
         self._select_all_btn = QPushButton("Select All", self)
         self._select_failed_btn = QPushButton("Select Failed", self)
         self._clear_selection_btn = QPushButton("Clear Selection", self)
+        self._queue_more_btn = QToolButton(self)
+        self._run_options_btn = QToolButton(self)
+        self._select_all_action: QAction | None = None
+        self._select_failed_action: QAction | None = None
+        self._clear_selection_action: QAction | None = None
+        self._auto_preset_action: QAction | None = None
+        self._auto_export_action: QAction | None = None
+        self._preview_skip_action: QAction | None = None
         self._run_btn = QPushButton("Run Selected", self)
         self._cancel_btn = QPushButton("Stop Run", self)
 
@@ -220,6 +231,17 @@ class BatchManagerDialog(QDialog):
         self._background_combo.setEnabled(not self._is_running)
         self.queue_list.setEnabled(not self._is_running)
         self._refresh_idle_controls()
+
+    def _option_action(self, checkbox: QCheckBox, text: str, tooltip: str) -> QAction:
+        """Create a compact menu action that keeps an existing checkbox option wired."""
+
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setChecked(checkbox.isChecked())
+        action.setToolTip(tooltip)
+        action.toggled.connect(checkbox.setChecked)
+        checkbox.toggled.connect(action.setChecked)
+        return action
 
     def update_from_report(self, report: object) -> None:
         """Render a BatchRunReport-like object into the list and summary."""
@@ -373,12 +395,29 @@ class BatchManagerDialog(QDialog):
         selection_row = QHBoxLayout()
         selection_row.addWidget(QLabel("Selected queue items will be processed.", self))
         self._select_all_btn.clicked.connect(self.select_all_items)
-        selection_row.addWidget(self._select_all_btn)
+        self._select_all_btn.hide()
         self._select_failed_btn.clicked.connect(self.select_failed_items)
-        selection_row.addWidget(self._select_failed_btn)
+        self._select_failed_btn.hide()
         self._clear_selection_btn.clicked.connect(self.clear_selection)
-        selection_row.addWidget(self._clear_selection_btn)
+        self._clear_selection_btn.hide()
         selection_row.addStretch(1)
+
+        queue_menu = QMenu(self._queue_more_btn)
+        self._select_all_action = QAction("Select all", self)
+        self._select_all_action.triggered.connect(self.select_all_items)
+        queue_menu.addAction(self._select_all_action)
+        self._select_failed_action = QAction("Select failed", self)
+        self._select_failed_action.triggered.connect(self.select_failed_items)
+        queue_menu.addAction(self._select_failed_action)
+        queue_menu.addSeparator()
+        self._clear_selection_action = QAction("Clear selection", self)
+        self._clear_selection_action.triggered.connect(self.clear_selection)
+        queue_menu.addAction(self._clear_selection_action)
+        self._queue_more_btn.setText("Queue")
+        self._queue_more_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._queue_more_btn.setMenu(queue_menu)
+        self._queue_more_btn.setToolTip("Queue selection actions")
+        selection_row.addWidget(self._queue_more_btn)
         queue_layout.addLayout(selection_row)
 
         self.queue_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -431,17 +470,44 @@ class BatchManagerDialog(QDialog):
         status_layout.addWidget(self._details_label)
         layout.addWidget(status_box)
 
-        rules_row = QHBoxLayout()
         self._auto_preset_check.setChecked(True)
         self._auto_export_check.setChecked(True)
         self._preview_skip_check.setChecked(True)
         self._auto_preset_check.setToolTip("Auto-pick safe batch presets from the asset type, tags, and format.")
         self._auto_export_check.setToolTip("Save processed files to the selected export folder.")
         self._preview_skip_check.setToolTip("Skip extra planning UI steps for a faster queue run.")
-        rules_row.addWidget(self._auto_preset_check)
-        rules_row.addWidget(self._auto_export_check)
-        rules_row.addWidget(self._preview_skip_check)
-        rules_row.addStretch(1)
+        self._auto_preset_check.hide()
+        self._auto_export_check.hide()
+        self._preview_skip_check.hide()
+
+        rules_header = QHBoxLayout()
+        rules_header.addWidget(QLabel("Preset/background rules for the selected batch.", self))
+        rules_header.addStretch(1)
+
+        options_menu = QMenu(self._run_options_btn)
+        self._auto_preset_action = self._option_action(
+            self._auto_preset_check,
+            "Smart presets by asset type",
+            "Auto-pick safe batch presets from the asset type, tags, and format.",
+        )
+        self._auto_export_action = self._option_action(
+            self._auto_export_check,
+            "Export after processing",
+            "Save processed files to the selected export folder.",
+        )
+        self._preview_skip_action = self._option_action(
+            self._preview_skip_check,
+            "Fast run",
+            "Skip extra planning UI steps for a faster queue run.",
+        )
+        options_menu.addAction(self._auto_preset_action)
+        options_menu.addAction(self._auto_export_action)
+        options_menu.addAction(self._preview_skip_action)
+        self._run_options_btn.setText("Options")
+        self._run_options_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._run_options_btn.setMenu(options_menu)
+        self._run_options_btn.setToolTip("Batch run options")
+        rules_header.addWidget(self._run_options_btn)
 
         apply_row = QHBoxLayout()
         self._apply_active_edits_check.setChecked(False)
@@ -474,7 +540,7 @@ class BatchManagerDialog(QDialog):
         rules_layout = QVBoxLayout(rules_box)
         rules_layout.setContentsMargins(10, 12, 10, 10)
         rules_layout.setSpacing(8)
-        rules_layout.addLayout(rules_row)
+        rules_layout.addLayout(rules_header)
         rules_layout.addLayout(apply_row)
         rules_layout.addLayout(cutout_row)
 
@@ -616,6 +682,20 @@ class BatchManagerDialog(QDialog):
         self._select_all_btn.setEnabled(is_idle and has_rows)
         self._select_failed_btn.setEnabled(is_idle and has_failed)
         self._clear_selection_btn.setEnabled(is_idle and has_rows)
+        if self._select_all_action is not None:
+            self._select_all_action.setEnabled(is_idle and has_rows)
+        if self._select_failed_action is not None:
+            self._select_failed_action.setEnabled(is_idle and has_failed)
+        if self._clear_selection_action is not None:
+            self._clear_selection_action.setEnabled(is_idle and has_rows)
+        self._queue_more_btn.setEnabled(is_idle and has_rows)
+        self._run_options_btn.setEnabled(is_idle and has_selection)
+        if self._auto_preset_action is not None:
+            self._auto_preset_action.setEnabled(is_idle and has_selection)
+        if self._auto_export_action is not None:
+            self._auto_export_action.setEnabled(is_idle and has_selection)
+        if self._preview_skip_action is not None:
+            self._preview_skip_action.setEnabled(is_idle and has_selection)
         self._apply_active_edits_check.setEnabled(is_idle and has_selection)
 
         allow_export_controls = is_idle and self._auto_export_check.isChecked()

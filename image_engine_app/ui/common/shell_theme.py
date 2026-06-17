@@ -437,6 +437,26 @@ def build_app_stylesheet() -> str:
         border-color: #e0ddd7;
         color: #b5bfbd;
     }
+    QToolButton#workspaceMoreButton {
+        min-height: 24px;
+        max-height: 24px;
+        padding: 0 10px;
+        border: 1px solid #d1d8d2;
+        border-radius: 8px;
+        background: #fffdfa;
+        color: #38555c;
+        font-size: 10px;
+        font-weight: 700;
+    }
+    QToolButton#workspaceMoreButton:hover {
+        background: #f5faf7;
+        border-color: #abc1ba;
+    }
+    QToolButton#workspaceMoreButton:disabled {
+        background: #f5f2ec;
+        border-color: #e0ddd7;
+        color: #b5bfbd;
+    }
     QListWidget#workspaceAssetList::item {
         border: 1px solid transparent;
         border-radius: 7px;
@@ -573,6 +593,31 @@ def build_app_stylesheet() -> str:
         font-size: 9px;
         font-weight: 700;
         min-height: 24px;
+    }
+    QToolButton#exportBarMenuAction {
+        min-height: 24px;
+        max-height: 24px;
+        padding: 2px 18px 2px 9px;
+        border: 1px solid #d1d8d2;
+        border-radius: 7px;
+        background: #fffdfa;
+        color: #38555c;
+        font-size: 10px;
+        font-weight: 700;
+    }
+    QToolButton#exportBarMenuAction:hover {
+        background: #f5faf7;
+        border-color: #abc1ba;
+    }
+    QToolButton#exportBarMenuAction:disabled {
+        background: #f5f2ec;
+        border-color: #e0ddd7;
+        color: #a9b6b4;
+    }
+    QToolButton#exportBarMenuAction::menu-indicator {
+        subcontrol-origin: padding;
+        subcontrol-position: right center;
+        width: 10px;
     }
     QToolButton#shellWarmToggle {
         min-height: 22px;

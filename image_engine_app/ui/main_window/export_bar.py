@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QToolButton,
@@ -37,9 +38,8 @@ class ExportBar(QFrame):
         self._export_btn = QPushButton("Export", self)
         self._skip_btn = QPushButton("Skip", self)
         self._export_dir_field = QLineEdit(self)
-        self._browse_btn = QToolButton(self)
-        self._open_folder_btn = QToolButton(self)
-        self._size_label = QLabel("Size --", self)
+        self._folder_menu_btn = QToolButton(self)
+        self._size_label = QLabel("Estimate --", self)
         self._auto_next_toggle = QCheckBox("Auto-next", self)
         self._build_ui()
 
@@ -90,7 +90,7 @@ class ExportBar(QFrame):
         self._skip_btn.clicked.connect(self._request_skip)
         layout.addWidget(self._skip_btn)
 
-        dest_label = QLabel("To", self)
+        dest_label = QLabel("Export to", self)
         dest_label.setObjectName("shellSubtitle")
         layout.addWidget(dest_label)
         self._export_dir_field.setReadOnly(True)
@@ -99,16 +99,15 @@ class ExportBar(QFrame):
         self._export_dir_field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self._export_dir_field, 1)
 
-        self._browse_btn.setText("Browse")
-        self._browse_btn.setToolTip("Choose export folder")
-        self._browse_btn.setAutoRaise(False)
-        self._browse_btn.clicked.connect(self.browse_export_dir_requested.emit)
-        layout.addWidget(self._browse_btn)
-
-        self._open_folder_btn.setText("Open")
-        self._open_folder_btn.clicked.connect(self.open_export_dir_requested.emit)
-        self._open_folder_btn.setToolTip("Open the current export folder in File Explorer.")
-        layout.addWidget(self._open_folder_btn)
+        folder_menu = QMenu(self._folder_menu_btn)
+        folder_menu.addAction("Choose Folder", self.browse_export_dir_requested.emit)
+        folder_menu.addAction("Open Folder", self.open_export_dir_requested.emit)
+        self._folder_menu_btn.setObjectName("exportBarMenuAction")
+        self._folder_menu_btn.setText("Folder")
+        self._folder_menu_btn.setToolTip("Choose or open the export folder")
+        self._folder_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._folder_menu_btn.setMenu(folder_menu)
+        layout.addWidget(self._folder_menu_btn)
 
         self._auto_next_toggle.setChecked(True)
         self._auto_next_toggle.setToolTip("After successful export, move to the next asset in workspace order.")
@@ -117,7 +116,7 @@ class ExportBar(QFrame):
         self._size_label.setObjectName("exportSizeBadge")
         self._size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._size_label.setMinimumHeight(24)
-        self._size_label.setMinimumWidth(88)
+        self._size_label.setMinimumWidth(104)
         self._size_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         layout.addWidget(self._size_label)
 
@@ -129,8 +128,7 @@ class ExportBar(QFrame):
         self._export_btn.setEnabled(has_asset)
         self._skip_btn.setEnabled(has_asset)
         self._export_dir_field.setEnabled(has_asset)
-        self._browse_btn.setEnabled(has_asset)
-        self._open_folder_btn.setEnabled(has_asset)
+        self._folder_menu_btn.setEnabled(has_asset)
         self._auto_next_toggle.setEnabled(has_asset)
 
     def _request_export(self) -> None:
@@ -154,7 +152,7 @@ class ExportBar(QFrame):
         has_asset = asset is not None
         self._set_controls_enabled(has_asset)
         if not has_asset:
-            self._size_label.setText("Size --")
+            self._size_label.setText("Estimate --")
             return
 
         export_settings = getattr(getattr(asset, "edit_state", None), "settings", None)

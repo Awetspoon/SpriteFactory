@@ -71,7 +71,7 @@ class ImageEngineMainWindow(QMainWindow):
         super().__init__(parent)
         self.setObjectName("imageEngineMainWindow")
         self._configure_native_window_chrome()
-        self.setWindowTitle("Sprite Factory Pro v1.2.1")
+        self.setWindowTitle("Sprite Factory Pro v1.2.2")
         self.resize(1460, 920)
         self.setMinimumSize(1180, 760)
 
@@ -83,9 +83,9 @@ class ImageEngineMainWindow(QMainWindow):
         self._batch_worker: object | None = None
         self._batch_dialog_queue_signature: tuple[str, ...] = ()
 
-        self._badge_format = QLabel("--", self)
-        self._badge_alpha = QLabel("A-", self)
-        self._badge_frames = QLabel("1F", self)
+        self._badge_format = QLabel("Format --", self)
+        self._badge_alpha = QLabel("Alpha --", self)
+        self._badge_frames = QLabel("Frames --", self)
         self._page_tabs: QStackedWidget | None = None
         self._page_nav_buttons: dict[int, QToolButton] = {}
         self._top_toolbar: QToolBar | None = None
@@ -217,7 +217,7 @@ class ImageEngineMainWindow(QMainWindow):
         # Format badges
         for badge in (self._badge_format, self._badge_alpha, self._badge_frames):
             badge.setObjectName("toolbarBadge")
-            badge.setFixedSize(76, 30)
+            badge.setFixedSize(86, 30)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             toolbar.addWidget(badge)
 
@@ -225,10 +225,10 @@ class ImageEngineMainWindow(QMainWindow):
         self._add_toolbar_command_button(toolbar, text="Batch", callback=self._show_batch_manager)
         self._add_toolbar_command_button(
             toolbar,
-            text="Preset Manager",
-            callback=(self.preset_manager_dialog.show if self.preset_manager_dialog is not None else None),
-            tooltip="Open the full preset manager",
-            width=104,
+            text="Presets",
+            callback=(self._show_preset_manager if self.preset_manager_dialog is not None else None),
+            tooltip="Open preset manager",
+            width=76,
         )
 
         toolbar.addSeparator()
@@ -588,25 +588,25 @@ class ImageEngineMainWindow(QMainWindow):
             "<li><b>Left rail</b>: Workspace, Web Sources, and Helper.</li>"
             "<li><b>Workspace panel</b>: asset list, empty state, and 100-item queue paging.</li>"
             "<li><b>Preview Studio</b>: Current and Final stay central; use per-pane Reset to refit either side.</li>"
-            "<li><b>Tools shelf</b>: Target, Live, Run, BG handling, reset, and export workflow controls.</li>"
+            "<li><b>Tools shelf</b>: quick Preset, Target, Live, Run, BG handling, reset, and export workflow controls.</li>"
             "<li><b>Edit Settings</b>: right-side tiles jump to Pixel, Color, Detail, Cleanup, Edges, Alpha, GIF, Export, and Encoding.</li>"
             "</ul>"
             "<h3>Top Toolbar</h3>"
             "<ul>"
             "<li><b>Session</b>: New Session, Open Session, Save Session, Clear Session, and Sessions Folder.</li>"
             "<li><b>Import</b>: the only local import control; use it for files, folders, or ZIPs.</li>"
-            "<li><b>FMT / Alpha / Frames</b>: quick readout for the selected asset.</li>"
-            "<li><b>Batch / Preset Manager</b>: open the queue manager and advanced preset editor directly.</li>"
+            "<li><b>Format / Alpha / Frames</b>: quick readout for the selected asset.</li>"
+            "<li><b>Batch / Presets</b>: open the queue manager and advanced preset editor directly.</li>"
             "<li><b>View</b>: Compare View, Current Only, Final Only, Compact UI, and Reset Shell live here.</li>"
             "</ul>"
             "<h3>Workspace Flow</h3>"
             "<ol>"
             "<li>Import or download assets, then choose one from Workspace.</li>"
             "<li>Use <b>Target</b> to choose Current, Final, or Both for the next apply.</li>"
-            "<li>Use <b>Live</b> to link views or turn Auto Preview on/off.</li>"
+            "<li>Use <b>Live</b> to link views or turn Auto on/off for preview updates.</li>"
             "<li>Use <b>BG</b> for background handling: keep, remove white, or remove black.</li>"
             "<li><b>More</b> keeps reset actions separate: Reset Edits changes image edits; Reset View changes zoom/pan.</li>"
-            "<li>The export footer has Profile, Export, Skip, destination folder, Auto-next, and predicted size.</li>"
+            "<li>The export footer has Profile, Export, Skip, folder output, Auto-next, and Estimate.</li>"
             "</ol>"
             "<h3>Settings Groups</h3>"
             "<ul>"
@@ -620,25 +620,27 @@ class ImageEngineMainWindow(QMainWindow):
             "</ul>"
             "<h3>Presets</h3>"
             "<ul>"
-            "<li><b>Preset Manager</b>: duplicate a system template, set compatible formats/tags, edit the JSON delta, then save a user preset.</li>"
+            "<li><b>Preset</b> in the Tools shelf applies a compatible preset to the active asset for quick polish.</li>"
+            "<li><b>Presets</b> in the top toolbar opens the advanced manager where you can duplicate a system template, set compatible formats/tags, edit the JSON delta, then save a user preset.</li>"
             "<li>Presets are compatibility-aware; GIF-safe presets avoid breaking animated assets.</li>"
             "<li><b>Batch</b> can copy current edits, apply a preset, apply background overrides, process, then export.</li>"
             "</ul>"
             "<h3>Web Sources</h3>"
             "<ol>"
-            "<li>Use <b>1. Choose Saved Page</b> to pick any saved website/page, then scan it directly.</li>"
-            "<li>Paste one URL and click <b>Save Page</b> to add that site/path to the saved-page picker.</li>"
-            "<li>Click <b>Scan Current Page</b> when the selected page already contains image files.</li>"
-            "<li>Use <b>2. Pages to Scan</b> for index pages: find linked pages, filter/select them, then scan selected pages.</li>"
-            "<li>Paste several page URLs into <b>Manual page URLs</b> when you already know the pages you want to scan.</li>"
+            "<li>Use <b>1. Scan Pages</b> to paste one page URL, or paste a list of page URLs and scan them together.</li>"
+            "<li>Use <b>Save URL as Page</b> when you want to keep one page as a saved shortcut.</li>"
+            "<li>Use <b>2. Saved Shortcuts</b> only when you want to scan a saved shortcut again.</li>"
+            "<li>Use <b>3. Find Linked Pages</b> only when a page is an index/category page and you need to discover linked pages first.</li>"
             "<li>Large linked-page scans are capped at 100 pages unless you confirm, which helps avoid freezing on huge sites.</li>"
-            "<li>Use <b>3. Found Files</b> to filter by PNG/GIF/WEBP/JPG/ZIP, search names/URLs, and select files.</li>"
+            "<li>Use <b>4. Found Files</b> to filter by PNG/GIF/WEBP/JPG/ZIP, search names/URLs, and select files.</li>"
             "<li>Select files and click <b>Download Selected</b>; Sprite Factory routes them into the workspace automatically.</li>"
             "<li>Use <b>More</b> for Network Check or saved-page cleanup.</li>"
             "</ol>"
             "<h3>Batch</h3>"
             "<ul>"
             "<li>Select queue items, choose optional rules, then click <b>Run Batch</b>.</li>"
+            "<li>Use <b>Queue</b> for Select all, Select failed, and Clear selection.</li>"
+            "<li>Use <b>Options</b> for Smart presets, Export after processing, and Fast run.</li>"
             "<li>Run order: copy current edits, apply chosen preset, apply background override, process, export.</li>"
             "<li>Use naming/output options for clean filenames and a consistent export folder.</li>"
             "<li>Failed items can be selected again after the run.</li>"
@@ -679,6 +681,8 @@ class ImageEngineMainWindow(QMainWindow):
         self.ui_state.apply_requested.connect(self._on_apply_requested)
         self.ui_state.light_preview_requested.connect(self._on_light_preview_requested)
         self.ui_state.export_requested.connect(self._on_export_requested)
+        self.control_strip.preset_selected.connect(self._on_control_preset_selected)
+        self.control_strip.preset_manager_requested.connect(self._show_preset_manager)
         self.export_bar.skip_requested.connect(self._on_skip_requested)
         self.export_bar.browse_export_dir_requested.connect(self._on_export_directory_browse_requested)
         self.export_bar.open_export_dir_requested.connect(self._on_export_directory_open_requested)
@@ -703,10 +707,11 @@ class ImageEngineMainWindow(QMainWindow):
         if self.preset_manager_dialog is not None and self.controller is not None:
             # Keep batch preset choices fresh after saves/deletes in the manager.
             self.preset_manager_dialog.finished.connect(
-                lambda _code=0: self._sync_batch_dialog_items()
+                lambda _code=0: self._refresh_preset_surfaces()
             )
 
         self._init_web_sources_panel()
+        self._refresh_preset_surfaces()
 
     def _set_preview_view_mode(self, mode_value: str) -> None:
         resolved = self.preview_panel.set_view_mode(mode_value)
@@ -738,12 +743,13 @@ class ImageEngineMainWindow(QMainWindow):
 
     def _on_active_asset_changed(self, asset: object) -> None:
         if asset is None:
-            self._badge_format.setText("FMT: --")
+            self._badge_format.setText("Format --")
             self._badge_format.setToolTip("Format: unavailable")
-            self._badge_alpha.setText("Alpha: --")
+            self._badge_alpha.setText("Alpha --")
             self._badge_alpha.setToolTip("Alpha: no asset")
-            self._badge_frames.setText("Frames: --")
+            self._badge_frames.setText("Frames --")
             self._badge_frames.setToolTip("Frames: no asset")
+            self._refresh_control_presets()
             return
 
         fmt = getattr(getattr(asset, "format", None), "value", "--")
@@ -751,11 +757,11 @@ class ImageEngineMainWindow(QMainWindow):
         has_alpha = bool(getattr(caps, "has_alpha", False))
         is_animated = bool(getattr(caps, "is_animated", False))
 
-        self._badge_format.setText(f"FMT: {str(fmt).upper()}")
+        self._badge_format.setText(f"Format {str(fmt).upper()}")
         self._badge_format.setToolTip(f"Format: {str(fmt).upper()}")
-        self._badge_alpha.setText("Alpha: Yes" if has_alpha else "Alpha: No")
+        self._badge_alpha.setText("Alpha Yes" if has_alpha else "Alpha No")
         self._badge_alpha.setToolTip("Alpha: yes" if has_alpha else "Alpha: no")
-        self._badge_frames.setText("Frames: GIF" if is_animated else "Frames: 1")
+        self._badge_frames.setText("Animated" if is_animated else "Static")
         self._badge_frames.setToolTip("Frames: animated" if is_animated else "Frames: static")
         asset_id = getattr(asset, "id", None)
         if isinstance(asset_id, str):
@@ -763,12 +769,16 @@ class ImageEngineMainWindow(QMainWindow):
             if self.asset_tabs.active_asset_id() != asset_id:
                 self._sync_workspace_tabs()
         self._refresh_export_prediction()
+        self._refresh_control_presets()
 
     def _on_light_preview_requested(self) -> None:
         self._apply_coordinator.on_light_preview_requested()
 
     def _on_apply_requested(self) -> None:
         self._apply_coordinator.on_apply_requested()
+
+    def _on_control_preset_selected(self, preset_name: str) -> None:
+        self._apply_coordinator.on_preset_requested(preset_name)
 
     def _on_global_reset_requested(self) -> None:
         self._apply_coordinator.on_global_reset_requested()
@@ -839,6 +849,15 @@ class ImageEngineMainWindow(QMainWindow):
     def _show_batch_manager(self) -> None:
         self._batch_coordinator.show_manager()
 
+    def _show_preset_manager(self) -> None:
+        if self.preset_manager_dialog is None:
+            self._status("Preset Manager unavailable")
+            return
+        self.preset_manager_dialog.refresh_from_controller()
+        self.preset_manager_dialog.show()
+        self.preset_manager_dialog.raise_()
+        self.preset_manager_dialog.activateWindow()
+
     def _show_export_encoding_window(self) -> None:
         self._encoding_coordinator.show_export_encoding_window()
 
@@ -887,13 +906,15 @@ class ImageEngineMainWindow(QMainWindow):
     def _refresh_export_prediction(self) -> None:
         asset = self.ui_state.active_asset
         if asset is None:
-            self.ui_state.set_export_prediction_text("Size --")
+            self.ui_state.set_export_prediction_text("Estimate --")
             return
 
         if self.controller is not None:
             text = self.controller.format_prediction_text(asset)
         else:
-            text = "Size --"
+            text = "Estimate --"
+        if text.startswith("Size"):
+            text = f"Estimate{text[4:]}"
         self.ui_state.set_export_prediction_text(text)
 
     def _status(self, text: str) -> None:
@@ -964,6 +985,20 @@ class ImageEngineMainWindow(QMainWindow):
                 pass
         self.batch_manager_dialog.set_export_directory(self.export_bar.export_directory())
 
+    def _refresh_control_presets(self) -> None:
+        asset = self.ui_state.active_asset
+        if self.controller is None or asset is None:
+            self.control_strip.set_preset_entries([], has_asset=asset is not None)
+            return
+        try:
+            entries = self.controller.available_preset_entries(asset, compatible_only=True)
+        except Exception:
+            entries = []
+        self.control_strip.set_preset_entries(entries, has_asset=True)
+
+    def _refresh_preset_surfaces(self) -> None:
+        self._sync_batch_dialog_items()
+        self._refresh_control_presets()
 
     def _sync_session_active_asset(self, asset: AssetRecord | None) -> None:
         session = self.ui_state.session

@@ -1,4 +1,4 @@
-﻿"""Asset-centric data models from the Image Engine v1.0.1 schema."""
+"""Asset-centric data models from the Image Engine v1.0.1 schema."""
 
 from __future__ import annotations
 

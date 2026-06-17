@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from image_engine_app.engine.process.presets_apply import PresetApplyError
+
 
 class ApplyCoordinator:
     """Owns light/heavy apply, preset apply, and global reset actions."""
@@ -66,6 +68,49 @@ class ApplyCoordinator:
         else:
             self._window._status("Apply complete: no heavy jobs ran")
         self._window._refresh_export_prediction()
+
+    def on_preset_requested(self, preset_name: str) -> None:
+        """Apply one named preset to the active asset through the shared preset engine."""
+
+        asset = self._window.ui_state.active_asset
+        if asset is None:
+            self._window._status("Preset skipped: no active asset")
+            return
+
+        if self._window.controller is None:
+            self._window._status("Preset skipped: controller unavailable")
+            return
+
+        try:
+            self._window.controller.reset_asset_settings_to_defaults(asset)
+            summary = self._window.controller.apply_named_preset(asset, preset_name)
+        except PresetApplyError as exc:
+            self._window._status(f"Preset skipped: {exc}")
+            return
+        except Exception as exc:
+            self._window._status(f"Preset failed: {exc}")
+            return
+
+        preview_error: Exception | None = None
+        try:
+            self._window.controller.apply_light_pipeline(asset)
+        except Exception as exc:
+            preview_error = exc
+
+        self._window.ui_state.set_active_asset(asset)
+        self._window.ui_state.set_heavy_queue_counts(
+            queued_count=int(getattr(summary, "queued_heavy_jobs", 0) or 0),
+            running_count=0,
+        )
+        self._window._refresh_export_prediction()
+
+        preset_label = str(getattr(summary, "preset_name", preset_name) or preset_name)
+        if preview_error is not None:
+            self._window._status(f"Preset applied, but preview refresh failed: {preview_error}")
+        elif bool(getattr(summary, "requires_apply", False)):
+            self._window._status(f"Preset applied: {preset_label}. Press Apply to finish heavy steps.")
+        else:
+            self._window._status(f"Preset applied: {preset_label}")
 
     def on_global_reset_requested(self) -> None:
         asset = self._window.ui_state.active_asset

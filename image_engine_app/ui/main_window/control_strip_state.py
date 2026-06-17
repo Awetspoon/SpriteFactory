@@ -22,7 +22,7 @@ class ControlStripViewState:
     queue_badge_tone: str = "disabled"
     target_badge_text: str = "Target: --"
     background_mode: str = BackgroundRemovalMode.OFF.value
-    background_button_text: str = "BG Off"
+    background_button_text: str = "Keep BG"
     background_button_tooltip: str = "Keep the current background settings for the active asset."
     apply_button_text: str = "Apply"
     apply_button_tooltip: str = "Select an asset before applying changes."
@@ -101,9 +101,9 @@ _TARGET_LABELS: dict[str, str] = {
 }
 
 _BACKGROUND_BUTTON_TEXT: dict[str, str] = {
-    BackgroundRemovalMode.OFF.value: "BG Off",
-    BackgroundRemovalMode.WHITE.value: "BG White",
-    BackgroundRemovalMode.BLACK.value: "BG Black",
+    BackgroundRemovalMode.OFF.value: "Keep BG",
+    BackgroundRemovalMode.WHITE.value: "Remove White",
+    BackgroundRemovalMode.BLACK.value: "Remove Black",
 }
 
 _BACKGROUND_BUTTON_TOOLTIPS: dict[str, str] = {

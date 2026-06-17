@@ -1,4 +1,4 @@
-﻿"""Filename helpers for export naming and collision handling."""
+"""Filename helpers for export naming and collision handling."""
 
 from __future__ import annotations
 

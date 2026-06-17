@@ -307,6 +307,7 @@ class WebSourcesService:
         items: list[WebItem] = []
         seen_urls: set[str] = set()
         filtered_count = 0
+        failed_pages: list[str] = []
 
         for page_url in page_urls:
             if callable(cancel_requested) and bool(cancel_requested()):
@@ -316,13 +317,20 @@ class WebSourcesService:
             if not normalized:
                 continue
 
-            page_result = self.scan_area(
-                normalized,
-                allowed_exts=allowed_exts,
-                show_likely=show_likely,
-                opener=opener,
-                cancel_requested=cancel_requested,
-            )
+            try:
+                page_result = self.scan_area(
+                    normalized,
+                    allowed_exts=allowed_exts,
+                    show_likely=show_likely,
+                    opener=opener,
+                    cancel_requested=cancel_requested,
+                )
+            except WebpageScanCancelledError:
+                raise
+            except Exception as exc:
+                detail = " ".join(str(exc).split()) or exc.__class__.__name__
+                failed_pages.append(f"{normalized}: {detail}")
+                continue
             filtered_count += int(page_result.filtered_count or 0)
             for item in page_result.items:
                 key = self.canonicalize_download_url(item.url) or item.url
@@ -331,7 +339,7 @@ class WebSourcesService:
                 seen_urls.add(key)
                 items.append(item)
 
-        return ScanResults(items=tuple(items), filtered_count=filtered_count)
+        return ScanResults(items=tuple(items), filtered_count=filtered_count, failed_pages=tuple(failed_pages))
 
     def download_items(
         self,

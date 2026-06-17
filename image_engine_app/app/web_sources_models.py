@@ -1,6 +1,6 @@
 """Web Sources models.
 
-Keep these dataclasses small and stable so UI + controller stay patch-safe.
+Keep these dataclasses small and stable so UI + controller contracts stay safe.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ class SmartOptions:
 class ScanResults:
     items: tuple[WebItem, ...]
     filtered_count: int = 0
+    failed_pages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -60,7 +60,7 @@ class EngineUIState(QObject):
         self._session: SessionState | None = None
         self._active_asset: AssetRecord | None = None
         self._heavy_queue_state = HeavyQueueState()
-        self._export_prediction_text = "Size --"
+        self._export_prediction_text = "Estimate --"
 
     @property
     def session(self) -> SessionState | None:

@@ -380,12 +380,15 @@ class BatchCoordinatorUiSafetyTests(unittest.TestCase):
         window = self._Window()
         coordinator = BatchCoordinator(window)
 
-        coordinator.on_progress_event(SimpleNamespace(event_type="item_progress"))
-        coordinator.on_run_finished(SimpleNamespace(cancelled=False, processed_count=0, failed_count=0))
+        with self.assertLogs("image_engine_app.batch.coordinator", level="WARNING") as logs:
+            coordinator.on_progress_event(SimpleNamespace(event_type="item_progress"))
+            coordinator.on_run_finished(SimpleNamespace(cancelled=False, processed_count=0, failed_count=0))
 
         joined = "\n".join(window.status_messages)
         self.assertIn("Batch progress UI warning", joined)
         self.assertIn("Batch report UI warning", joined)
+        self.assertIn("Batch progress UI update failed", "\n".join(logs.output))
+        self.assertIn("Batch report UI update failed", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

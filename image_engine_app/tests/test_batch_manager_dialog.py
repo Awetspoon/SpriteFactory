@@ -63,6 +63,27 @@ class BatchManagerDialogTests(unittest.TestCase):
             ("asset-2", "sprite_b.png"),
         ])
         self.assertTrue(dialog._run_btn.isEnabled())
+        self.assertTrue(dialog._queue_more_btn.isEnabled())
+        self.assertTrue(dialog._run_options_btn.isEnabled())
+
+    def test_compact_menus_keep_batch_options_wired(self) -> None:
+        dialog = BatchManagerDialog()
+        dialog.set_queue_assets([
+            ("asset-1", "sprite_a.png"),
+        ])
+
+        self.assertTrue(dialog.current_options().auto_preset)
+        self.assertTrue(dialog.current_options().auto_export)
+        self.assertTrue(dialog.current_options().preview_skip_mode)
+
+        dialog._auto_preset_action.setChecked(False)
+        dialog._auto_export_action.setChecked(False)
+        dialog._preview_skip_action.setChecked(False)
+
+        options = dialog.current_options()
+        self.assertFalse(options.auto_preset)
+        self.assertFalse(options.auto_export)
+        self.assertFalse(options.preview_skip_mode)
 
     def test_run_button_requires_preset_choice_when_enabled(self) -> None:
         dialog = BatchManagerDialog()

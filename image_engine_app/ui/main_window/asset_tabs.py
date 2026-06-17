@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -49,8 +50,9 @@ class WorkspaceAssetTabs(QFrame):
         self._window_section_combo = QComboBox(self)
         self._window_prev_button = QToolButton(self)
         self._window_next_button = QToolButton(self)
-        self._pin_button = QToolButton(self)
-        self._remove_button = QToolButton(self)
+        self._actions_button = QToolButton(self)
+        self._pin_action = None
+        self._remove_action = None
         self._build_ui()
 
     def set_tabs(
@@ -85,10 +87,12 @@ class WorkspaceAssetTabs(QFrame):
             end = min(total, start + len(items))
             pin_relevant = total > size
 
-            self._pin_button.setEnabled(pin_relevant)
-            self._pin_button.setVisible(pin_relevant)
-            self._remove_button.setEnabled(True)
-            self._remove_button.setVisible(True)
+            self._actions_button.setEnabled(True)
+            self._actions_button.setVisible(True)
+            if self._pin_action is not None:
+                self._pin_action.setEnabled(pin_relevant)
+            if self._remove_action is not None:
+                self._remove_action.setEnabled(True)
 
             summary = f"{total} asset(s) in workspace"
             if hidden > 0:
@@ -96,8 +100,8 @@ class WorkspaceAssetTabs(QFrame):
             self._summary_label.setText(summary)
 
             if hidden > 0:
-                self._window_label.setText(f"Showing {start + 1}-{end}")
-                self._window_label.setVisible(True)
+                self._window_label.setText("")
+                self._window_label.setVisible(False)
                 self._sync_section_combo(total=total, start=start, window_size=size)
             else:
                 self._window_label.setText("")
@@ -114,10 +118,12 @@ class WorkspaceAssetTabs(QFrame):
             self._asset_list.setEnabled(False)
             self._asset_list.setVisible(False)
             self._empty_import_card.setVisible(True)
-            self._pin_button.setEnabled(False)
-            self._pin_button.setVisible(False)
-            self._remove_button.setEnabled(False)
-            self._remove_button.setVisible(False)
+            self._actions_button.setEnabled(False)
+            self._actions_button.setVisible(False)
+            if self._pin_action is not None:
+                self._pin_action.setEnabled(False)
+            if self._remove_action is not None:
+                self._remove_action.setEnabled(False)
             self._summary_label.setText("No assets in workspace.")
             self._window_label.setText("")
             self._window_label.setVisible(False)
@@ -132,7 +138,7 @@ class WorkspaceAssetTabs(QFrame):
             self._asset_list.setCurrentRow(0)
 
         self._asset_list.blockSignals(False)
-        self._update_pin_button_text()
+        self._update_pin_action_text()
 
     def set_active_asset(self, asset_id: str | None) -> None:
         """Set the current workspace selection by asset id."""
@@ -142,7 +148,7 @@ class WorkspaceAssetTabs(QFrame):
         self._asset_list.blockSignals(True)
         self._select_asset_row(asset_id)
         self._asset_list.blockSignals(False)
-        self._update_pin_button_text()
+        self._update_pin_action_text()
 
     def active_asset_id(self) -> str | None:
         """Return the currently selected asset id, if any."""
@@ -177,7 +183,7 @@ class WorkspaceAssetTabs(QFrame):
         paging.addWidget(self._window_label)
 
         self._window_section_combo.setObjectName("workspaceSectionCombo")
-        self._window_section_combo.setFixedWidth(104)
+        self._window_section_combo.setFixedWidth(62)
         self._window_section_combo.setVisible(False)
         self._window_section_combo.currentIndexChanged.connect(self._on_window_section_changed)
         paging.addWidget(self._window_section_combo, 0)
@@ -202,28 +208,23 @@ class WorkspaceAssetTabs(QFrame):
         self._window_next_button.clicked.connect(self.window_next_requested.emit)
         paging.addWidget(self._window_next_button)
 
+        self._actions_button.setObjectName("workspaceMoreButton")
+        self._actions_button.setText("More")
+        self._actions_button.setToolTip("Workspace actions")
+        self._actions_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._actions_button.setEnabled(False)
+        self._actions_button.setVisible(False)
+        actions_menu = QMenu(self._actions_button)
+        self._pin_action = actions_menu.addAction("Pin Active", self._emit_pin_active_requested)
+        self._remove_action = actions_menu.addAction("Remove Selected", self._emit_remove_requested)
+        self._pin_action.setEnabled(False)
+        self._remove_action.setEnabled(False)
+        self._actions_button.setMenu(actions_menu)
+        paging.addWidget(self._actions_button)
+
         paging.addStretch(1)
 
         outer.addLayout(paging)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(6)
-        actions.addStretch(1)
-
-        self._pin_button.setText("Pin Active")
-        self._pin_button.setEnabled(False)
-        self._pin_button.setVisible(False)
-        self._pin_button.clicked.connect(self._emit_pin_active_requested)
-        actions.addWidget(self._pin_button)
-
-        self._remove_button.setText("Remove")
-        self._remove_button.setToolTip("Remove the selected asset from the workspace.")
-        self._remove_button.setEnabled(False)
-        self._remove_button.setVisible(False)
-        self._remove_button.clicked.connect(self._emit_remove_requested)
-        actions.addWidget(self._remove_button)
-
-        outer.addLayout(actions)
 
         self._asset_list.setObjectName("workspaceAssetList")
         self._asset_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -254,9 +255,17 @@ class WorkspaceAssetTabs(QFrame):
         for idx in range(section_count):
             section_start = idx * section_size
             section_end = min(total, section_start + section_size)
-            text = f"{idx + 1}/{section_count} ({section_start + 1}-{section_end})"
+            text = f"{idx + 1}/{section_count}"
             self._window_section_combo.addItem(text, section_start)
+            self._window_section_combo.setItemData(
+                idx,
+                f"Showing assets {section_start + 1}-{section_end} of {total}",
+                Qt.ItemDataRole.ToolTipRole,
+            )
         self._window_section_combo.setCurrentIndex(current_section)
+        self._window_section_combo.setToolTip(
+            f"Showing assets {start + 1}-{min(total, start + section_size)} of {total}"
+        )
         self._window_section_combo.blockSignals(False)
         self._window_section_combo.setVisible(section_count > 1)
 
@@ -269,7 +278,7 @@ class WorkspaceAssetTabs(QFrame):
         return False
 
     def _on_current_item_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
-        self._update_pin_button_text()
+        self._update_pin_action_text()
         asset_id = self._item_asset_id(current)
         if asset_id is None:
             return
@@ -295,15 +304,18 @@ class WorkspaceAssetTabs(QFrame):
             return
         self.window_section_requested.emit(int(data))
 
-    def _update_pin_button_text(self) -> None:
+    def _update_pin_action_text(self) -> None:
         current = self._asset_list.currentItem()
         if current is None:
-            self._pin_button.setText("Pin Active")
+            if self._pin_action is not None:
+                self._pin_action.setText("Pin Active")
+            return
+        if self._pin_action is None:
             return
         if bool(current.data(Qt.ItemDataRole.UserRole + 1)):
-            self._pin_button.setText("Unpin Active")
+            self._pin_action.setText("Unpin Active")
         else:
-            self._pin_button.setText("Pin Active")
+            self._pin_action.setText("Pin Active")
 
     @staticmethod
     def _item_asset_id(row: QListWidgetItem | None) -> str | None:

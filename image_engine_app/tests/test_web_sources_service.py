@@ -114,6 +114,39 @@ class WebSourcesServiceTests(unittest.TestCase):
         self.assertEqual(["a.png", "b.gif"], [item.name for item in results.items])
         self.assertEqual(3, results.filtered_count)
 
+    def test_scan_pages_skips_failed_pages_and_keeps_successful_results(self) -> None:
+        service = WebSourcesService(
+            app_paths=None,
+            scan_webpage_images=lambda *_args, **_kwargs: None,
+            import_url_source=lambda *args, **kwargs: None,
+            build_web_asset_from_file=lambda **kwargs: None,
+        )
+
+        def scan_area(area_url, **_kwargs):  # noqa: ANN001
+            if str(area_url).endswith("slow"):
+                raise TimeoutError("timed out")
+            return ScanResults(
+                items=(
+                    WebItem(
+                        url="https://cdn.example.com/a.png",
+                        name="a.png",
+                        ext=".png",
+                        confidence=Confidence.DIRECT,
+                        source_page=str(area_url),
+                    ),
+                ),
+                filtered_count=0,
+            )
+
+        service.scan_area = scan_area  # type: ignore[method-assign]
+
+        results = service.scan_pages(["https://example.com/slow", "https://example.com/good"])
+
+        self.assertEqual(["a.png"], [item.name for item in results.items])
+        self.assertEqual(1, len(results.failed_pages))
+        self.assertIn("https://example.com/slow", results.failed_pages[0])
+        self.assertIn("timed out", results.failed_pages[0])
+
     def test_resolve_download_url_prefers_file_specific_candidate_over_logo(self) -> None:
         def scan_webpage_images(_page_url, **_kwargs):  # noqa: ANN001
             return SimpleNamespace(

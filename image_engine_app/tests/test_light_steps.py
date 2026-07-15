@@ -10,7 +10,14 @@ import unittest
 from PIL import Image, ImageChops, ImageSequence, ImageStat  # noqa: E402
 
 from image_engine_app.engine.models import SettingsState  # noqa: E402
-from image_engine_app.engine.process.light_steps import _apply_alpha_rules, _apply_color_adjust, _apply_detail, _apply_edges, apply_light_processing  # noqa: E402
+from image_engine_app.engine.process.light_steps import (  # noqa: E402
+    _apply_alpha_rules,
+    _apply_cleanup,
+    _apply_color_adjust,
+    _apply_detail,
+    _apply_edges,
+    apply_light_processing,
+)
 
 
 class LightDetailTests(unittest.TestCase):
@@ -112,6 +119,25 @@ class LightColorTests(unittest.TestCase):
         self.assertGreater(out.getpixel((0, 0))[2], 128)
 
 
+class LightCleanupTests(unittest.TestCase):
+    def test_cleanup_controls_use_distinct_processing_paths(self) -> None:
+        source = Image.new("RGB", (24, 24))
+        for y in range(24):
+            for x in range(24):
+                base = 35 if ((x // 4) + (y // 4)) % 2 else 220
+                source.putpixel((x, y), (base, (base + x * 7) % 256, (base + y * 9) % 256))
+
+        outputs: list[bytes] = []
+        for field_name in ("denoise", "artifact_removal", "banding_removal", "halo_cleanup"):
+            settings = SettingsState()
+            setattr(settings.cleanup, field_name, 0.8)
+            output = _apply_cleanup(source, settings)
+            self.assertNotEqual(source.tobytes(), output.tobytes())
+            outputs.append(output.tobytes())
+
+        self.assertEqual(4, len(set(outputs)))
+
+
 class LightAlphaTests(unittest.TestCase):
     def test_edge_controls_keep_rgba_processing_alive(self) -> None:
         src = Image.new("RGBA", (8, 8), (10, 20, 30, 0))
@@ -206,6 +232,7 @@ class LightAlphaTests(unittest.TestCase):
 
             settings = SettingsState()
             settings.alpha.background_removal_mode = "white"
+            settings.gif.loop = False
 
             result = apply_light_processing(source_path=src, output_path=out, settings=settings)
 
@@ -215,6 +242,7 @@ class LightAlphaTests(unittest.TestCase):
             with Image.open(out) as image:
                 self.assertTrue(bool(getattr(image, "is_animated", False)))
                 self.assertGreaterEqual(int(getattr(image, "n_frames", 1)), 2)
+                self.assertIsNone(image.info.get("loop"))
                 frames = [frame.convert("RGBA") for frame in ImageSequence.Iterator(image)]
                 self.assertEqual(0, frames[0].getpixel((0, 0))[3])
                 self.assertNotEqual(frames[0].getpixel((5, 5)), frames[1].getpixel((5, 5)))

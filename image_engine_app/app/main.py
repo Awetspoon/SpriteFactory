@@ -1,4 +1,4 @@
-"""App entrypoint (UI launch) for the Prompt 16 Qt shell."""
+"""Application entrypoint for the Sprite Factory Qt desktop UI."""
 
 from __future__ import annotations
 
@@ -15,6 +15,9 @@ from image_engine_app.app.settings_store import SessionStore, load_user_settings
 from image_engine_app.app.ui_controller import ImageEngineUIController
 from image_engine_app.engine.models import SessionState
 from image_engine_app.ui.common.shell_theme import build_app_stylesheet
+
+
+APP_ICON_NAMES = ("spritefactory_pro.ico", "spritefactory.ico", "spritefactory_pro.png", "spritefactory.png")
 
 
 def build_startup_session() -> SessionState:
@@ -56,19 +59,19 @@ def _resolve_runtime_icon_candidates() -> list[Path]:
             meipass = getattr(sys, "_MEIPASS", None)
             if meipass:
                 base = Path(str(meipass))
-                candidates.append(base / "spritefactory_pro.ico")
-                candidates.append(base / "spritefactory.ico")
-                candidates.append(base / "spritefactory_pro.png")
-                candidates.append(base / "spritefactory.png")
+                for icon_root in (base / "image_engine_app" / "assets" / "icons", base):
+                    for icon_name in APP_ICON_NAMES:
+                        candidates.append(icon_root / icon_name)
 
             exe_path = Path(sys.executable)
             candidates.append(exe_path)
         else:
             root = Path(__file__).resolve().parents[2]
-            candidates.append(root / "spritefactory_pro.ico")
-            candidates.append(root / "spritefactory.ico")
-            candidates.append(root / "spritefactory_pro.png")
-            candidates.append(root / "spritefactory.png")
+            icon_root = root / "image_engine_app" / "assets" / "icons"
+            for icon_name in APP_ICON_NAMES:
+                candidates.append(icon_root / icon_name)
+            for icon_name in APP_ICON_NAMES:
+                candidates.append(root / icon_name)
     except Exception:
         return []
 
@@ -104,12 +107,19 @@ def _apply_clean_pro_theme(app) -> None:  # noqa: ANN001 - QApplication imported
     app.setStyleSheet(build_app_stylesheet())
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Launch the Sprite Factory UI shell."""
+def _parse_startup_args(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
+    """Parse Sprite Factory options and leave unrelated options for Qt."""
 
     parser = argparse.ArgumentParser(description="Launch the Sprite Factory UI shell")
     parser.add_argument("--app-data-dir", default=None, help="Override app data directory (for local testing)")
-    args = parser.parse_args(argv)
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    return parser.parse_known_args(raw_args)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Launch the Sprite Factory UI shell."""
+
+    args, qt_args = _parse_startup_args(argv)
 
     paths = ensure_app_paths(base_dir=args.app_data_dir)
     logger = configure_logging(paths.logs)
@@ -126,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _set_windows_app_user_model_id("Marcus.SpriteFactory.Windows.PythonV2", logger)
 
-    app = QApplication(argv or sys.argv)
+    app = QApplication([sys.argv[0], *qt_args])
 
     # Prefer native Windows style so min/max/titlebar behavior matches user expectations.
     try:

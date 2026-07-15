@@ -6,7 +6,8 @@ This document describes the intended repository layout for Sprite Factory.
 
 - `image_engine_app/` — current production application code.
   - `app/` — startup, controller wiring, settings, persistence, audit.
-  - `engine/` — ingest, processing, analysis, batch, export, models.
+  - `assets/` — packaged static assets such as app icons and UI images.
+  - `engine/` — ingest, processing, analysis, batch, export, models, and the single bundled preset catalog under `engine/presets/`.
   - `ui/` — PySide6 windows, coordinators, controls, and dialogs.
   - `tests/` — unit and smoke coverage for the active app.
   - `docs/` — package-specific reference notes and default data files.
@@ -23,6 +24,7 @@ This document describes the intended repository layout for Sprite Factory.
 - `build_exe.ps1` / `build_exe_onefile.ps1` — Windows packaging helpers.
 - `RUN_AUDIT.ps1` — repository audit entry point.
 - `BUILD_LOCK.md` — locked build-next checklist that intentionally stays at repo root.
+- App icon assets live under `image_engine_app/assets/icons/` and are bundled by the PyInstaller specs.
 
 ## Generated or local-only paths
 
@@ -42,5 +44,6 @@ These should not be treated as source structure and should stay out of version c
 - The active application path is `image_engine_app`, not `image_engine_v3`.
 - `image_engine_v3` is still important because the active code and tests depend on it.
 - Imports should be package-qualified (`image_engine_app.*`, `image_engine_v3.*`) rather than relying on `PYTHONPATH=image_engine_app`.
+- Output-size choices are defined once in `engine/process/output_size.py`; the UI maps them onto the existing resize/width/height controls rather than maintaining duplicate size state.
 - `python -m image_engine_app` is the preferred development entrypoint; the repo-root `main.py` wrapper is compatibility sugar only.
 - Legacy repo-root `_runtime_data/` may still exist on a local machine, but it is not part of the intended source layout.

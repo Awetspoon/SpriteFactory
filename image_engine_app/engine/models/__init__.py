@@ -33,7 +33,7 @@ from .asset_record import (
     SourceType,
 )
 from .presets import ExportComparisonEntry, ExportPrediction, ExportProfileModel, PresetModel
-from .queue_models import JobState, ProgressEvent, QueueItem, QueueItemStatus
+from .queue_models import BatchEditSource, JobState, ProgressEvent, QueueItem, QueueItemStatus
 from .session_state import HistoryAffectsView, HistoryState, HistoryStep, SessionState, TabState
 
 __all__ = [
@@ -44,6 +44,7 @@ __all__ = [
     "AssetFormat",
     "AssetRecord",
     "BackgroundRemovalMode",
+    "BatchEditSource",
     "Capabilities",
     "ChromaSubsampling",
     "CleanupSettings",

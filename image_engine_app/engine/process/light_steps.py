@@ -280,35 +280,41 @@ def _clamp_channel(value: float | int) -> int:
 
 
 def _apply_cleanup(img, settings: SettingsState):
-    _, _, ImageFilter, _ = _require_pillow()
+    Image, _, ImageFilter, _ = _require_pillow()
     s = settings.cleanup
 
-    # Denoise in [0,1] -> radius in [0,2]
     denoise = max(0.0, float(s.denoise))
     artifact = max(0.0, float(s.artifact_removal))
     banding = max(0.0, float(s.banding_removal))
     halo = max(0.0, float(s.halo_cleanup))
 
-    strength = max(denoise, artifact, banding, halo)
-    if strength <= 1e-6:
+    if max(denoise, artifact, banding, halo) <= 1e-6:
         return img
 
-    # Conservative blend: median filter for small impulse noise + light gaussian blur.
-    median_size = 3 if strength < 0.35 else 5
-    blurred = img.filter(ImageFilter.MedianFilter(size=median_size))
+    out = img
 
-    radius = min(2.0, 0.5 + (strength * 1.5))
-    blurred2 = blurred.filter(ImageFilter.GaussianBlur(radius=radius))
+    # Denoise targets isolated pixel noise with a median filter.
+    if denoise > 1e-6:
+        size = 3 if denoise < 0.8 else 5
+        layer = out.filter(ImageFilter.MedianFilter(size=size))
+        out = Image.blend(out, layer, min(0.7, 0.12 + (denoise * 0.28)))
 
-    # Blend back toward original so we don't destroy edges.
-    blend_alpha = min(0.65, 0.15 + (strength * 0.5))
-    try:
-        from PIL import ImageChops  # type: ignore
+    # Artifact cleanup softens block/compression boundaries without using the denoise path.
+    if artifact > 1e-6:
+        layer = out.filter(ImageFilter.BoxBlur(radius=min(2.0, 0.35 + (artifact * 0.75))))
+        out = Image.blend(out, layer, min(0.52, 0.08 + (artifact * 0.22)))
 
-        out = ImageChops.blend(img, blurred2, blend_alpha)
-        return out
-    except Exception:
-        return blurred2
+    # Banding cleanup uses a wider low-strength blur to smooth gradual tone steps.
+    if banding > 1e-6:
+        layer = out.filter(ImageFilter.GaussianBlur(radius=min(3.0, 0.7 + (banding * 1.1))))
+        out = Image.blend(out, layer, min(0.38, 0.05 + (banding * 0.16)))
+
+    # Halo cleanup applies a conservative local smooth pass around high-contrast transitions.
+    if halo > 1e-6:
+        layer = out.filter(ImageFilter.SMOOTH_MORE)
+        out = Image.blend(out, layer, min(0.42, 0.06 + (halo * 0.18)))
+
+    return out
 
 
 def _apply_detail(img, settings: SettingsState):
@@ -644,8 +650,9 @@ def _save_light_processed_gif_preview(im, out: Path, settings: SettingsState) ->
 
     frames: list = []
     durations: list[int] = []
-    loop = int(getattr(im, "info", {}).get("loop", 0) or 0)
     disposal = getattr(im, "info", {}).get("disposal", 2)
+    gif = settings.gif
+    delay_override = max(0, int(getattr(gif, "frame_delay_ms", 0) or 0))
     source_frame_size = (int(im.size[0]), int(im.size[1]))
     logical_size: tuple[int, int] | None = None
     resample = _resample_from_method(
@@ -662,22 +669,33 @@ def _save_light_processed_gif_preview(im, out: Path, settings: SettingsState) ->
         # balloon the on-screen preview while export still honors the logical output size.
         if processed.size != source_frame_size:
             processed = processed.resize(source_frame_size, resample=resample)
-        durations.append(_gif_delay_or_default(getattr(frame, "info", {}).get("duration", 100)))
-        frames.append(_quantize_preview_gif_frame(processed))
+        source_delay = _gif_delay_or_default(getattr(frame, "info", {}).get("duration", 100))
+        durations.append(delay_override or source_delay)
+        frames.append(
+            _quantize_preview_gif_frame(
+                processed,
+                palette_size=int(getattr(gif, "palette_size", 256) or 256),
+                dither_strength=float(getattr(gif, "dither_strength", 0.0) or 0.0),
+            )
+        )
 
     if not frames or logical_size is None:
         raise LightProcessError("Animated GIF preview had no frames.")
 
     first = frames[0]
     rest = frames[1:]
+    if not bool(getattr(gif, "loop", True)):
+        for frame in frames:
+            frame.info.pop("loop", None)
     save_kwargs: dict[str, object] = {
         "save_all": True,
         "append_images": rest,
         "duration": durations if len(durations) > 1 else durations[0],
-        "loop": loop,
-        "optimize": False,
+        "optimize": bool(getattr(gif, "frame_optimize", True)),
         "disposal": int(disposal) if isinstance(disposal, int) else 2,
     }
+    if bool(getattr(gif, "loop", True)):
+        save_kwargs["loop"] = 0
     first.save(out, format="GIF", **save_kwargs)
     return logical_size
 
@@ -690,10 +708,12 @@ def _gif_delay_or_default(raw_delay: object) -> int:
     return max(20, value if value > 0 else 100)
 
 
-def _quantize_preview_gif_frame(rgba):
+def _quantize_preview_gif_frame(rgba, *, palette_size: int = 256, dither_strength: float = 0.0):
     from PIL import Image  # type: ignore
 
     frame = rgba.convert("RGBA")
+    colors = max(2, min(256, int(palette_size or 256)))
+    dither = Image.Dither.FLOYDSTEINBERG if float(dither_strength) > 0.0 else Image.Dither.NONE
     alpha = frame.getchannel("A")
     transparent_mask = alpha.point(
         lambda value: 255 if int(value) <= 24 else 0,
@@ -701,10 +721,14 @@ def _quantize_preview_gif_frame(rgba):
     )
 
     if transparent_mask.getbbox() is None:
-        return frame.quantize(colors=256, method=getattr(Image, "FASTOCTREE", 2))
+        return frame.quantize(colors=colors, method=getattr(Image, "FASTOCTREE", 2), dither=dither)
 
     rgb = frame.convert("RGB")
-    quantized = rgb.quantize(colors=255, method=getattr(Image, "FASTOCTREE", 2))
+    quantized = rgb.quantize(
+        colors=max(2, min(255, colors - 1)),
+        method=getattr(Image, "FASTOCTREE", 2),
+        dither=dither,
+    )
 
     palette = list(quantized.getpalette() or [])
     if len(palette) < 768:

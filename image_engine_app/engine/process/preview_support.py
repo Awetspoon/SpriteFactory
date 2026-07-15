@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import shutil
 from pathlib import Path
 
-from image_engine_app.engine.models import ApplyTarget, AssetFormat, ExportFormat, SettingsState
+from image_engine_app.engine.models import AssetFormat, ExportFormat, SettingsState
 from image_engine_app.engine.process.light_steps import LightProcessError, LightStepUnavailable, apply_light_processing
 
 
@@ -49,49 +48,16 @@ def render_light_pipeline_preview(
         return False
 
     derived_dir = base_dir / "derived" / str(getattr(asset, "id", "asset"))
-    current_out = derived_dir / f"current{preview_extension_for_asset(asset)}"
     final_out = derived_dir / f"final{preview_extension_for_asset(asset)}"
 
     edit_state = getattr(asset, "edit_state", None)
     settings = getattr(edit_state, "settings", None)
-    target = getattr(edit_state, "apply_target", ApplyTarget.BOTH)
-    target_value = getattr(target, "value", ApplyTarget.BOTH.value)
-    sync_enabled = bool(getattr(edit_state, "sync_current_final", True))
-
     try:
-        if final_only:
-            result = apply_light_processing(source_path=source, output_path=final_out, settings=settings)
-            setattr(asset, "derived_final_path", str(result.output_path))
-            setattr(asset, "dimensions_final", result.size)
-            return True
-
-        if sync_enabled or target_value == ApplyTarget.BOTH.value:
-            result = apply_light_processing(source_path=source, output_path=final_out, settings=settings)
-            setattr(asset, "derived_final_path", str(result.output_path))
-
-            current_out.parent.mkdir(parents=True, exist_ok=True)
-            mirrored_current = final_out
-            if final_out.exists():
-                try:
-                    shutil.copy2(final_out, current_out)
-                    mirrored_current = current_out
-                except Exception:
-                    mirrored_current = final_out
-
-            setattr(asset, "derived_current_path", str(mirrored_current))
-            setattr(asset, "dimensions_current", result.size)
-            setattr(asset, "dimensions_final", result.size)
-            return True
-
-        if target_value == ApplyTarget.FINAL.value:
-            result = apply_light_processing(source_path=source, output_path=final_out, settings=settings)
-            setattr(asset, "derived_final_path", str(result.output_path))
-            setattr(asset, "dimensions_final", result.size)
-            return True
-
-        result = apply_light_processing(source_path=source, output_path=current_out, settings=settings)
-        setattr(asset, "derived_current_path", str(result.output_path))
-        setattr(asset, "dimensions_current", result.size)
+        _ = final_only
+        result = apply_light_processing(source_path=source, output_path=final_out, settings=settings)
+        setattr(asset, "derived_current_path", None)
+        setattr(asset, "derived_final_path", str(result.output_path))
+        setattr(asset, "dimensions_final", result.size)
         return True
 
     except LightStepUnavailable:

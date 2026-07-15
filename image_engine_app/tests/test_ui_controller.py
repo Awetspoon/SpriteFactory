@@ -34,6 +34,7 @@ from image_engine_app.engine.models import (  # noqa: E402
     ScaleMethod,
 )
 from image_engine_app.engine.process.presets_apply import PresetApplyError  # noqa: E402
+from image_engine_app.engine.process.edit_baseline import capture_detected_settings  # noqa: E402
 
 
 def _fake_png(width: int, height: int, *, payload: bytes = b"DATA") -> bytes:
@@ -354,7 +355,7 @@ class UIControllerTests(unittest.TestCase):
         self.assertEqual(registry[0]["id"], "demo_site")
         self.assertEqual(registry[0]["areas"][0]["id"], "main_area")
 
-    def test_scan_web_sources_area_filters_likely_and_detects_zip_links(self) -> None:
+    def test_scan_web_source_pages_filters_likely_and_detects_zip_links(self) -> None:
         controller = ImageEngineUIController()
         html = (
             "<html><body>"
@@ -368,8 +369,8 @@ class UIControllerTests(unittest.TestCase):
             _ = (request, timeout)
             return _FakeResponse(html, "text/html; charset=utf-8")
 
-        strict = controller.scan_web_sources_area(
-            "https://example.com/gallery",
+        strict = controller.scan_web_source_pages(
+            ["https://example.com/gallery"],
             show_likely=False,
             opener=opener,
         )
@@ -378,15 +379,15 @@ class UIControllerTests(unittest.TestCase):
         self.assertIn("https://example.com/pack.zip", strict_urls)
         self.assertNotIn("https://cdn.example.com/image?id=42", strict_urls)
 
-        likely = controller.scan_web_sources_area(
-            "https://example.com/gallery",
+        likely = controller.scan_web_source_pages(
+            ["https://example.com/gallery"],
             show_likely=True,
             opener=opener,
         )
         likely_urls = {item.url for item in likely.items}
         self.assertIn("https://cdn.example.com/image?id=42", likely_urls)
 
-    def test_scan_web_sources_area_falls_back_to_likely_when_no_direct_links(self) -> None:
+    def test_scan_web_source_pages_falls_back_to_likely_when_no_direct_links(self) -> None:
         controller = ImageEngineUIController()
         html = "<html><body><img src='https://cdn.example.com/image?id=42'></body></html>".encode("utf-8")
 
@@ -394,8 +395,8 @@ class UIControllerTests(unittest.TestCase):
             _ = (request, timeout)
             return _FakeResponse(html, "text/html; charset=utf-8")
 
-        results = controller.scan_web_sources_area(
-            "https://example.com/gallery",
+        results = controller.scan_web_source_pages(
+            ["https://example.com/gallery"],
             show_likely=False,
             opener=opener,
         )
@@ -404,14 +405,14 @@ class UIControllerTests(unittest.TestCase):
         self.assertEqual("https://cdn.example.com/image?id=42", results.items[0].url)
         self.assertEqual(Confidence.LIKELY, results.items[0].confidence)
 
-    def test_scan_web_sources_area_accepts_direct_url_without_html_scan(self) -> None:
+    def test_scan_web_source_pages_accepts_direct_url_without_html_scan(self) -> None:
         controller = ImageEngineUIController()
 
         def opener(request, timeout=0):  # noqa: ANN001
             raise AssertionError(f"HTML scan opener should not run for direct URLs: {request} {timeout}")
 
-        results = controller.scan_web_sources_area(
-            "https://cdn.example.com/sprite.png",
+        results = controller.scan_web_source_pages(
+            ["https://cdn.example.com/sprite.png"],
             show_likely=False,
             opener=opener,
         )
@@ -420,12 +421,12 @@ class UIControllerTests(unittest.TestCase):
         self.assertEqual("https://cdn.example.com/sprite.png", results.items[0].url)
         self.assertEqual(Confidence.DIRECT, results.items[0].confidence)
 
-    def test_scan_web_sources_area_can_be_cancelled(self) -> None:
+    def test_scan_web_source_pages_can_be_cancelled(self) -> None:
         controller = ImageEngineUIController()
 
         with self.assertRaises(WebpageScanCancelledError):
-            controller.scan_web_sources_area(
-                "https://example.com/gallery",
+            controller.scan_web_source_pages(
+                ["https://example.com/gallery"],
                 cancel_requested=lambda: True,
                 opener=lambda request, timeout=0: _FakeResponse(b"<html></html>", "text/html; charset=utf-8"),
             )
@@ -692,7 +693,7 @@ class UIControllerTests(unittest.TestCase):
         names = [entry.name for entry in entries]
 
         self.assertIn("GIF Safe Cleanup", names)
-        self.assertIn("GIF Outline Safe", names)
+        self.assertIn("GIF Crisp 2x", names)
         self.assertNotIn("Sprite Sheet Prep", names)
         self.assertNotIn("Photo Recover", names)
         self.assertTrue(any("GIF" in entry.label for entry in entries if entry.name == "GIF Safe Cleanup"))
@@ -736,12 +737,16 @@ class UIControllerTests(unittest.TestCase):
         controller._apply_detected_baseline_preset(asset)
 
         self.assertEqual(asset.edit_state.settings.export.format, ExportFormat.GIF)
-        self.assertEqual(asset.edit_state.settings.export.palette_limit, 256)
+        self.assertEqual(asset.edit_state.settings.gif.palette_size, 256)
         self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
 
-    def test_reset_asset_settings_to_defaults_clears_custom_edits(self) -> None:
+    def test_restore_asset_detected_settings_discards_only_custom_edits(self) -> None:
         controller = ImageEngineUIController()
         asset = _asset(mode=EditMode.ADVANCED)
+
+        asset.edit_state.settings.cleanup.denoise = 0.18
+        asset.edit_state.settings.detail.clarity = 0.12
+        capture_detected_settings(asset)
 
         asset.edit_state.settings.pixel.resize_percent = 175.0
         asset.edit_state.settings.detail.clarity = 0.7
@@ -752,15 +757,49 @@ class UIControllerTests(unittest.TestCase):
         asset.dimensions_final = (120, 90)
         asset.edit_state.queued_heavy_jobs.append(HeavyJobSpec(tool=HeavyTool.AI_UPSCALE))
 
-        controller.reset_asset_settings_to_defaults(asset)
+        controller.restore_asset_detected_settings(asset)
 
         self.assertEqual(asset.edit_state.settings.pixel.resize_percent, 100.0)
-        self.assertEqual(asset.edit_state.settings.detail.clarity, 0.0)
-        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.0)
+        self.assertEqual(asset.edit_state.settings.detail.clarity, 0.12)
+        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.18)
         self.assertEqual(asset.edit_state.settings.ai.deblur_strength, 0.0)
         self.assertEqual(asset.dimensions_current, (48, 32))
         self.assertEqual(asset.dimensions_final, (48, 32))
         self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
+
+    def test_capture_preset_controls_saves_only_changes_from_detected_settings(self) -> None:
+        controller = ImageEngineUIController()
+        asset = _asset(mode=EditMode.ADVANCED)
+        asset.format = AssetFormat.PNG
+        asset.classification_tags = ["pixel_art", "web_source:https://example.com"]
+        asset.edit_state.settings.cleanup.denoise = 0.18
+        capture_detected_settings(asset)
+
+        asset.edit_state.settings.cleanup.denoise = 0.31
+        asset.edit_state.settings.color.contrast = 0.2
+        captured = controller.capture_preset_controls(asset)
+
+        self.assertEqual(captured.settings_delta["cleanup"], {"denoise": 0.31})
+        self.assertEqual(captured.settings_delta["color"], {"contrast": 0.2})
+        self.assertEqual(captured.changed_groups, ("color", "cleanup"))
+        self.assertEqual(captured.applies_to_formats, ("png",))
+        self.assertEqual(captured.applies_to_tags, ("pixel_art",))
+
+    def test_named_preset_replaces_stale_edits_but_keeps_detected_controls(self) -> None:
+        controller = ImageEngineUIController()
+        asset = _asset(mode=EditMode.ADVANCED)
+        asset.format = AssetFormat.PNG
+        asset.classification_tags = ["pixel_art"]
+        asset.edit_state.settings.cleanup.denoise = 0.16
+        capture_detected_settings(asset)
+
+        asset.edit_state.settings.cleanup.denoise = 0.88
+        asset.edit_state.settings.color.brightness = 0.4
+        controller.apply_named_preset(asset, "Web Quick Export")
+
+        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.16)
+        self.assertEqual(asset.edit_state.settings.color.brightness, 0.0)
+        self.assertEqual(asset.edit_state.settings.export.format, ExportFormat.WEBP)
 
     def test_apply_heavy_queue_runs_queued_jobs(self) -> None:
         controller = ImageEngineUIController()
@@ -801,7 +840,7 @@ class UIControllerTests(unittest.TestCase):
             self.assertEqual(len(completed), 1)
             self.assertEqual(asset.edit_state.queued_heavy_jobs[0].status, HeavyJobStatus.DONE)
             self.assertTrue(isinstance(asset.derived_final_path, str) and Path(asset.derived_final_path).exists())
-            self.assertTrue(isinstance(asset.derived_current_path, str) and Path(asset.derived_current_path).exists())
+            self.assertIsNone(asset.derived_current_path)
             self.assertGreaterEqual(asset.dimensions_final[0], 20)
             self.assertGreaterEqual(asset.dimensions_final[1], 16)
 
@@ -958,7 +997,7 @@ class UIControllerTests(unittest.TestCase):
             wrote = controller.apply_light_pipeline(asset)
 
             self.assertTrue(wrote)
-            self.assertTrue(str(asset.derived_current_path).endswith(".gif"))
+            self.assertIsNone(asset.derived_current_path)
             self.assertTrue(str(asset.derived_final_path).endswith(".gif"))
 
             with Image.open(asset.derived_final_path) as im:
@@ -1077,6 +1116,18 @@ class UIControllerTests(unittest.TestCase):
         self.assertEqual(getattr(events[0], "event_type", None), "batch_start")
         self.assertEqual(getattr(events[-1], "event_type", None), "batch_cancelled")
 
+    def test_run_batch_uses_the_controllers_heavy_queue_factory(self) -> None:
+        heavy_queue_factory = object()
+        controller = ImageEngineUIController(heavy_queue_factory=heavy_queue_factory)
+        expected_report = SimpleNamespace(items=[])
+
+        with patch("image_engine_app.app.ui_controller.BatchRunner") as runner_class:
+            runner_class.return_value.run.return_value = expected_report
+            report = controller.run_batch([], auto_export=False, auto_preset=False)
+
+        self.assertIs(report, expected_report)
+        self.assertIs(runner_class.call_args.kwargs["heavy_queue_factory"], heavy_queue_factory)
+
     def test_apply_named_preset_auto_upgrades_mode_when_required(self) -> None:
         controller = ImageEngineUIController()
         asset = _asset(mode=EditMode.ADVANCED)
@@ -1113,30 +1164,8 @@ class UIControllerTests(unittest.TestCase):
             self.assertGreater(asset.edit_state.settings.cleanup.denoise, 0.0)
             self.assertGreater(asset.edit_state.settings.detail.sharpen_amount, 0.0)
             self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
-
-    def test_analysis_inference_clamps_and_prefills_controls(self) -> None:
-        controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.ADVANCED)
-        asset.classification_tags = ["pixel_art"]
-        asset.analysis = AnalysisSummary(
-            blur_score=0.76,
-            noise_score=0.62,
-            compression_score=0.58,
-            edge_integrity_score=0.48,
-            resolution_need_score=0.95,
-            gif_palette_stress=None,
-            warnings=[],
-        )
-
-        controller._apply_analysis_inferred_control_defaults(asset)
-
-        self.assertEqual(asset.edit_state.settings.pixel.scale_method, ScaleMethod.NEAREST)
-        self.assertTrue(asset.edit_state.settings.pixel.pixel_snap)
-        self.assertGreater(asset.edit_state.settings.cleanup.denoise, 0.0)
-        self.assertGreater(asset.edit_state.settings.cleanup.artifact_removal, 0.0)
-        self.assertGreater(asset.edit_state.settings.detail.sharpen_amount, 0.0)
-        self.assertLessEqual(asset.edit_state.settings.ai.upscale_factor, 4.0)
-        self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
+            self.assertIsNotNone(asset.detected_settings)
+            self.assertEqual(asset.detected_settings, asset.edit_state.settings)
 
     def test_upsert_user_preset_rejects_invalid_settings_delta(self) -> None:
         controller = ImageEngineUIController()

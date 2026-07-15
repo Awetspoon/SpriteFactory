@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from image_engine_app.engine.models import AssetFormat, AssetRecord, EditMode, HeavyJobSpec, HeavyTool
+from image_engine_app.engine.models import AssetFormat, AssetRecord, BatchEditSource, EditMode, HeavyJobSpec, HeavyTool
 from image_engine_app.ui.main_window.batch_run_prep import prepare_batch_assets
 
 
@@ -41,9 +41,7 @@ class BatchRunPrepTests(unittest.TestCase):
             selected_assets=[target],
             active_asset=active,
             controller=_FakeController(),
-            auto_export=False,
-            apply_active_edits=True,
-            apply_selected_preset=False,
+            edit_source=BatchEditSource.COPY_ACTIVE,
             selected_preset_name="",
             background_override=None,
         )

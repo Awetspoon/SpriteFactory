@@ -11,9 +11,10 @@ Sprite Factory Pro is a Windows desktop app for cleaning, enhancing, previewing,
 - Import local files, folders, ZIP archives, or images found from web pages.
 - Preview `Current` and `Final` output side by side before exporting.
 - Apply cleanup, color, detail, transparency, GIF, export, and encoding controls.
+- Choose real output sizes using sprite-safe 2x/3x/4x/8x scaling or standard 240p-2160p heights while preserving aspect ratio.
 - Remove white or black backgrounds when you choose to, without forcing it on import.
-- Use presets for faster sprite, photo, GIF, and mixed-format workflows.
-- Batch process large queues with presets, background overrides, file naming, and export rules.
+- Save presets directly from changed controls, then reuse them for sprite, photo, GIF, and mixed-format workflows.
+- Batch process large queues with one clear edit source, background overrides, file naming, and export rules.
 - Export to `PNG`, `WEBP`, `JPG`, `GIF`, `ICO`, `TIFF`, and `BMP`.
 
 ## Download
@@ -22,16 +23,16 @@ The easiest way to use the app is the latest Windows release:
 
 [Sprite Factory Pro Releases](https://github.com/Awetspoon/SpriteFactory/releases/latest)
 
-Download the `.exe`, run it, then import files from the top `Import` menu or use the `Web Sources` tab.
+Download the `.exe`, run it, then add files from the top `File` menu or use `Web Sources`.
 
 ## Main Workflow
 
-1. Open a new session or continue working in the current workspace.
+1. Create a workspace or open an existing one from `File`.
 2. Import files, folders, ZIPs, or scan web pages for sprite/image links.
 3. Select an asset from the workspace.
-4. Choose a preset or adjust edit settings manually.
-5. Use `Preview` to check the result in the final pane.
-6. Use `Apply` when you want to commit the edit to the asset.
+4. Start with the controls detected for that asset, then choose a preset or make small adjustments.
+5. Watch visual changes update the Final pane automatically, or use `Refresh Final` to rebuild it manually.
+6. Use `Run Heavy` only when a selected preset or control requires heavier processing.
 7. Export one file, skip to the next asset, or open Batch Manager for queue export.
 
 ## Web Sources
@@ -48,8 +49,9 @@ Download the `.exe`, run it, then import files from the top `Import` menu or use
 
 Batch Manager processes selected workspace assets with a separate batch workflow so normal preview/edit state does not get tangled with queue export.
 
-- Copy current edits when needed.
-- Apply a chosen preset or smart preset rules.
+- Choose exactly one edit source: keep each asset's controls, apply one preset, copy the active asset, or smart-match each asset.
+- Chosen presets start from every asset's detected baseline; smart matching applies at most one preset and never stacks hidden rules.
+- Workspace, Preset Studio, and Batch share one merged preset library. Bundled presets live in one engine catalog; user presets are stored separately and override by name.
 - Override background-removal behavior for the batch.
 - Keep source names or use batch naming rules.
 - Save files after processing and review failures clearly.

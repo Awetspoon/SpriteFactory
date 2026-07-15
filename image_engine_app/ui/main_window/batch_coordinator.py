@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from image_engine_app.app.ui_controller import ImageEngineUIController
-from image_engine_app.engine.models import AssetRecord, normalize_background_removal_mode
+from image_engine_app.engine.models import AssetRecord, BatchEditSource, normalize_background_removal_mode
 from image_engine_app.ui.main_window.batch_run_prep import prepare_batch_assets
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
@@ -131,13 +131,21 @@ class BatchCoordinator:
             self._window._status("Batch run already in progress")
             return
 
-        auto_preset = bool(getattr(options_obj, "auto_preset", True))
+        raw_edit_source = getattr(options_obj, "edit_source", BatchEditSource.KEEP_EACH)
+        try:
+            edit_source = (
+                raw_edit_source
+                if isinstance(raw_edit_source, BatchEditSource)
+                else BatchEditSource(str(raw_edit_source))
+            )
+        except ValueError:
+            self._window._status("Batch run skipped: choose a valid edit source")
+            return
+        auto_preset = edit_source is BatchEditSource.SMART_MATCH
         auto_export = bool(getattr(options_obj, "auto_export", True))
         preview_skip = bool(getattr(options_obj, "preview_skip_mode", True))
         export_name_template = str(getattr(options_obj, "export_name_template", "{stem}"))
         avoid_overwrite = bool(getattr(options_obj, "avoid_overwrite", True))
-        apply_active_edits = bool(getattr(options_obj, "apply_active_edits", False))
-        apply_selected_preset = bool(getattr(options_obj, "apply_selected_preset", False))
         selected_preset_name = str(getattr(options_obj, "selected_preset_name", "") or "").strip()
         background_override_raw = getattr(options_obj, "background_removal_override", None)
         background_override = (
@@ -161,9 +169,7 @@ class BatchCoordinator:
                 selected_assets=selected_assets,
                 active_asset=self._window.ui_state.active_asset,
                 controller=self._window.controller,
-                auto_export=auto_export,
-                apply_active_edits=apply_active_edits,
-                apply_selected_preset=apply_selected_preset,
+                edit_source=edit_source,
                 selected_preset_name=selected_preset_name,
                 background_override=background_override,
             )
@@ -181,15 +187,13 @@ class BatchCoordinator:
             )
 
         LOGGER.info(
-            "Batch run requested: selected=%s auto_export=%s auto_preset=%s preview_skip=%s export_dir=%s template=%s apply_active_edits=%s apply_selected_preset=%s preset=%s bg_override=%s",
+            "Batch run requested: selected=%s edit_source=%s auto_export=%s preview_skip=%s export_dir=%s template=%s preset=%s bg_override=%s",
             len(batch_assets),
+            edit_source.value,
             auto_export,
-            auto_preset,
             preview_skip,
             export_dir,
             export_name_template,
-            apply_active_edits,
-            apply_selected_preset,
             selected_preset_name,
             background_override,
         )

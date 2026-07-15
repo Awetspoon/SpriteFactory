@@ -13,6 +13,14 @@ from image_engine_app.app import main as app_main
 
 
 class LauncherTests(unittest.TestCase):
+    def test_app_startup_arguments_do_not_leak_into_qt_arguments(self) -> None:
+        args, qt_args = app_main._parse_startup_args(
+            ["--app-data-dir", ".\\runtime", "-platform", "offscreen"]
+        )
+
+        self.assertEqual(Path(args.app_data_dir), Path(".\\runtime"))
+        self.assertEqual(qt_args, ["-platform", "offscreen"])
+
     def test_extract_cli_app_data_dir_supports_separate_value(self) -> None:
         target = launcher._extract_cli_app_data_dir(["--app-data-dir", ".\\runtime"])
         self.assertEqual(Path(".\\runtime").expanduser().resolve(), target)

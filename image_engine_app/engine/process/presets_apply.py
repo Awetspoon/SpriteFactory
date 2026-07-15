@@ -47,7 +47,7 @@ def apply_preset_to_edit_state(
         )
 
     updated = deepcopy(edit_state)
-    _apply_settings_delta(updated.settings, preset.settings_delta)
+    _apply_settings_delta(updated.settings, _normalize_legacy_settings_delta(preset.settings_delta))
     return clamp_edit_state_for_mode(updated)
 
 
@@ -147,4 +147,19 @@ def _apply_settings_delta(settings_obj: Any, delta: dict[str, Any]) -> None:
                 ) from exc
 
         setattr(settings_obj, key, value)
+
+
+def _normalize_legacy_settings_delta(delta: dict[str, Any]) -> dict[str, Any]:
+    """Map retired preset fields onto their single active control."""
+
+    normalized = deepcopy(delta)
+    export_delta = normalized.get("export")
+    if not isinstance(export_delta, dict) or "palette_limit" not in export_delta:
+        return normalized
+
+    palette_size = export_delta.pop("palette_limit")
+    gif_delta = normalized.setdefault("gif", {})
+    if isinstance(gif_delta, dict):
+        gif_delta.setdefault("palette_size", palette_size)
+    return normalized
 

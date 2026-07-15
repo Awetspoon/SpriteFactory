@@ -10,40 +10,46 @@ from uuid import uuid4
 from image_engine_app.app.settings_store import load_path_preferences, save_path_preferences
 from image_engine_app.engine.models import SessionState
 
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 
 class SessionCoordinator:
-    """Owns new/open/save/clear session workflows for the main window."""
+    """Owns safe new/open/save workspace workflows for the main window."""
 
     def __init__(self, window: Any) -> None:
         self._window = window
 
-    def new_session(self) -> None:
-        """Start a fresh empty session and clear the workspace."""
+    def new_workspace(self) -> bool:
+        """Start an empty workspace without silently discarding current work."""
+
+        if not self._confirm_workspace_replacement(
+            title="New Workspace",
+            prompt="Save your current workspace before starting a new one?",
+        ):
+            self._window._status("New workspace canceled")
+            return False
 
         self._window.load_workspace_state(self._create_empty_session(), [])
-        self._window._status("New session created")
+        self._window._status("New workspace created")
+        return True
 
-    def save_session_file(self) -> bool:
+    def save_workspace_file(self) -> bool:
         """Save the current workspace session + assets to a chosen JSON file."""
 
         if self._window.session_store is None:
-            self._window._status("Save session unavailable: session store not configured")
+            self._window._status("Save workspace unavailable: workspace store not configured")
             return False
         session = self._window.ui_state.session
         if session is None:
-            self._window._status("Save session skipped: no active session")
+            self._window._status("Save workspace skipped: no active workspace")
             return False
 
-        default_dir = self._default_session_directory()
+        default_dir = self._default_workspace_directory()
         default_base = Path(default_dir) if default_dir else Path.home()
-        default_name = f"session_{session.session_id}.json"
+        default_name = f"workspace_{session.session_id}.json"
         path_str, _selected = QFileDialog.getSaveFileName(
             self._window,
-            "Save Session",
+            "Save Workspace",
             str(default_base / default_name),
             "JSON Files (*.json);;All Files (*)",
         )
@@ -60,24 +66,24 @@ class SessionCoordinator:
                 session,
                 self._window.workspace_assets,
             )
-            self._remember_session_directory(result.path.parent)
-            self._window._status(f"Session saved: {result.path.name} | folder: {result.path.parent}")
+            self._remember_workspace_directory(result.path.parent)
+            self._window._status(f"Workspace saved: {result.path.name} | folder: {result.path.parent}")
             return True
         except Exception as exc:
-            self._window._show_error("Save Session Failed", str(exc))
+            self._window._show_error("Save Workspace Failed", str(exc))
             return False
 
-    def open_session_file(self) -> None:
+    def open_workspace_file(self) -> None:
         """Open a saved session/workspace JSON file."""
 
         if self._window.session_store is None:
-            self._window._status("Open session unavailable: session store not configured")
+            self._window._status("Open workspace unavailable: workspace store not configured")
             return
 
-        start_dir = self._default_session_directory()
+        start_dir = self._default_workspace_directory()
         path_str, _selected = QFileDialog.getOpenFileName(
             self._window,
-            "Open Session",
+            "Open Workspace",
             start_dir,
             "JSON Files (*.json);;All Files (*)",
         )
@@ -85,31 +91,14 @@ class SessionCoordinator:
             return
 
         target = Path(path_str)
-        if self.load_workspace_from_file(target, source_label="Session"):
-            self._remember_session_directory(target.parent)
-
-    def clear_session(self) -> None:
-        """Clear the active workspace, prompting to save before discarding work."""
-
-        if self._has_workspace_content():
-            answer = QMessageBox.question(
-                self._window,
-                "Clear Session",
-                "Save your current work before clearing the session?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Save,
-            )
-            if answer == QMessageBox.StandardButton.Cancel:
-                self._window._status("Clear session canceled")
-                return
-            if answer == QMessageBox.StandardButton.Save and not self.save_session_file():
-                self._window._status("Clear session canceled")
-                return
-
-        self._window.load_workspace_state(self._create_empty_session(), [])
-        self._window._status("Session cleared")
+        if not self._confirm_workspace_replacement(
+            title="Open Workspace",
+            prompt="Save your current workspace before opening another one?",
+        ):
+            self._window._status("Open workspace canceled")
+            return
+        if self.load_workspace_from_file(target, source_label="Workspace"):
+            self._remember_workspace_directory(target.parent)
 
     def load_workspace_from_file(self, path: Path, *, source_label: str) -> bool:
         """Load a workspace/session JSON file and replace current workspace state."""
@@ -128,20 +117,24 @@ class SessionCoordinator:
         self._window._status(f"{source_label} loaded: {loaded.path.name} ({len(loaded.assets)} asset(s))")
         return True
 
-    def open_sessions_folder(self) -> None:
-        """Open the sessions storage directory in the system file manager."""
+    def _confirm_workspace_replacement(self, *, title: str, prompt: str) -> bool:
+        if not self._has_workspace_content():
+            return True
 
-        if self._window.session_store is None:
-            self._window._status("Open sessions folder unavailable: session store not configured")
-            return
-
-        default_dir = self._default_session_directory()
-        folder = Path(default_dir) if default_dir else self._window.session_store.paths.sessions
-        folder.mkdir(parents=True, exist_ok=True)
-        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
-            self._window._status(f"Open sessions folder failed: {folder}")
-            return
-        self._window._status(f"Opened sessions folder: {folder}")
+        answer = QMessageBox.question(
+            self._window,
+            title,
+            prompt,
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer == QMessageBox.StandardButton.Cancel:
+            return False
+        if answer == QMessageBox.StandardButton.Save:
+            return self.save_workspace_file()
+        return True
 
     @staticmethod
     def _create_empty_session() -> SessionState:
@@ -170,7 +163,7 @@ class SessionCoordinator:
             or session.macros
         )
 
-    def _default_session_directory(self) -> str:
+    def _default_workspace_directory(self) -> str:
         if self._window.session_store is None:
             return ""
         try:
@@ -182,7 +175,7 @@ class SessionCoordinator:
             return preferred.strip()
         return str(self._window.session_store.paths.sessions)
 
-    def _remember_session_directory(self, path: Path) -> None:
+    def _remember_workspace_directory(self, path: Path) -> None:
         if self._window.session_store is None:
             return
         try:

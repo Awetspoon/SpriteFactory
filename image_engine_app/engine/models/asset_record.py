@@ -230,7 +230,7 @@ class AISettings(SerializableDataclass):
 
 @dataclass
 class GifSettings(SerializableDataclass):
-    frame_delay_ms: int = 100
+    frame_delay_ms: int = 0
     loop: bool = True
     palette_size: int = 256
     dither_strength: float = 0.0
@@ -244,7 +244,6 @@ class ExportSettings(SerializableDataclass):
     quality: int = 90
     compression_level: int = 6
     chroma_subsampling: ChromaSubsampling = ChromaSubsampling.AUTO
-    palette_limit: int | None = None
     ico_sizes: list[int] = field(default_factory=lambda: [16, 32, 48, 64, 128, 256])
     strip_metadata: bool = True
 
@@ -279,6 +278,7 @@ class EditState(SerializableDataclass):
     mode: EditMode = EditMode.ADVANCED
     sync_current_final: bool = True
     apply_target: ApplyTarget = ApplyTarget.BOTH
+    # Kept for loading older workspaces; current UI always refreshes Final.
     auto_apply_light: bool = True
     queued_heavy_jobs: list[HeavyJobSpec] = field(default_factory=list)
     settings: SettingsState = field(default_factory=SettingsState)
@@ -305,6 +305,7 @@ class AssetRecord(SerializableDataclass):
     analysis: AnalysisSummary = field(default_factory=AnalysisSummary)
     recommendations: RecommendationsSummary = field(default_factory=RecommendationsSummary)
     edit_state: EditState = field(default_factory=EditState)
+    detected_settings: SettingsState | None = None
     history: HistoryState = field(default_factory=HistoryState)
 
 

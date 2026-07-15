@@ -12,6 +12,13 @@ from image_engine_app.engine.models import (
     PresetSuggestion,
     RecommendationsSummary,
 )
+from image_engine_app.engine.presets import (
+    ARTIFACT_CLEANUP,
+    EDGE_REPAIR,
+    GIF_SAFE_CLEANUP,
+    PHOTO_RECOVER,
+    PIXEL_CLEAN_UPSCALE,
+)
 
 
 @dataclass
@@ -36,7 +43,7 @@ def build_recommendations(context: RecommendationInput) -> RecommendationsSummar
         confidence = clamp01(0.62 + (0.35 * analysis.resolution_need_score))
         suggestions.append(
             PresetSuggestion(
-                preset_name="Pixel Clean Upscale",
+                preset_name=PIXEL_CLEAN_UPSCALE,
                 confidence=confidence,
                 reason="Pixel/sprite content benefits from clean scaling and edge-safe cleanup.",
             )
@@ -46,7 +53,7 @@ def build_recommendations(context: RecommendationInput) -> RecommendationsSummar
         confidence = clamp01(0.66 + (0.18 * (analysis.compression_score or 0.0)) + (0.12 * (analysis.noise_score or 0.0)))
         suggestions.append(
             PresetSuggestion(
-                preset_name="GIF Safe Cleanup",
+                preset_name=GIF_SAFE_CLEANUP,
                 confidence=confidence,
                 reason="Animated content benefits from lighter frame-safe cleanup and GIF-tuned export settings.",
             )
@@ -56,7 +63,7 @@ def build_recommendations(context: RecommendationInput) -> RecommendationsSummar
         confidence = clamp01(0.58 + (0.22 * analysis.compression_score) + (0.2 * analysis.noise_score))
         suggestions.append(
             PresetSuggestion(
-                preset_name="Artifact Cleanup",
+                preset_name=ARTIFACT_CLEANUP,
                 confidence=confidence,
                 reason="Compression/noise indicators suggest cleanup before export.",
             )
@@ -66,7 +73,7 @@ def build_recommendations(context: RecommendationInput) -> RecommendationsSummar
         confidence = clamp01(0.5 + (0.35 * analysis.blur_score))
         suggestions.append(
             PresetSuggestion(
-                preset_name="Photo Recover",
+                preset_name=PHOTO_RECOVER,
                 confidence=confidence,
                 reason="Photo-like content with blur indicators may benefit from deblur/sharpen workflow.",
             )
@@ -76,7 +83,7 @@ def build_recommendations(context: RecommendationInput) -> RecommendationsSummar
         confidence = clamp01(0.48 + (0.4 * (1.0 - analysis.edge_integrity_score)))
         suggestions.append(
             PresetSuggestion(
-                preset_name="Edge Repair",
+                preset_name=EDGE_REPAIR,
                 confidence=confidence,
                 reason="Weak edge integrity suggests edge refinement and halo cleanup.",
             )

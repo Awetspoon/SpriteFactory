@@ -13,7 +13,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency in some environments
     QCoreApplication = None  # type: ignore[assignment]
 
-from image_engine_app.engine.models import AssetRecord, ExportFormat  # noqa: E402
+from image_engine_app.engine.models import AssetRecord, BatchEditSource, ExportFormat  # noqa: E402
 from image_engine_app.engine.process.presets_apply import PresetApplyError  # noqa: E402
 from image_engine_app.ui.main_window.batch_coordinator import BatchCoordinator, _BatchRunWorker  # noqa: E402
 
@@ -144,7 +144,7 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
 
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=True,
+                edit_source=BatchEditSource.KEEP_EACH,
                 auto_export=True,
                 preview_skip_mode=True,
                 export_name_template="{stem}",
@@ -159,13 +159,13 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         self.assertEqual([asset.id for asset in selected_assets], ["asset-b"])
         self.assertIsNot(selected_assets[0], window._workspace_assets[1])
         self.assertEqual(captured["export_dir"], "C:/Exports/ChosenInBatch")
-        self.assertEqual(selected_assets[0].edit_state.settings.export.format, ExportFormat.PNG)
+        self.assertEqual(selected_assets[0].edit_state.settings.export.format, ExportFormat.JPG)
         self.assertEqual(window._workspace_assets[1].edit_state.settings.export.format, ExportFormat.JPG)
         self.assertEqual(window._export_coordinator.remembered[-1], "C:/Exports/ChosenInBatch")
         self.assertTrue(window.batch_manager_dialog.running_states)
         self.assertIn("Batch run started", window.status_messages[-1])
 
-    def test_on_run_requested_can_apply_active_edits_and_selected_preset(self) -> None:
+    def test_on_run_requested_can_copy_active_controls(self) -> None:
         window = self._FakeWindow()
         active = window._workspace_assets[0]
         target = window._workspace_assets[1]
@@ -182,16 +182,14 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         coordinator.start_worker = _capture_start_worker  # type: ignore[method-assign]
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=False,
+                edit_source=BatchEditSource.COPY_ACTIVE,
                 auto_export=False,
                 preview_skip_mode=True,
                 export_name_template="{stem}",
                 avoid_overwrite=True,
                 export_directory=None,
                 selected_asset_ids=("asset-b",),
-                apply_active_edits=True,
-                apply_selected_preset=True,
-                selected_preset_name="Photo Recover",
+                selected_preset_name="",
             )
         )
 
@@ -201,7 +199,7 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         self.assertIsNot(batch_assets[0], target)
         self.assertAlmostEqual(batch_assets[0].edit_state.settings.cleanup.denoise, 0.37, places=3)
         self.assertAlmostEqual(target.edit_state.settings.cleanup.denoise, 0.0, places=3)
-        self.assertIn(("asset-b", "Photo Recover"), window.controller.applied_presets)
+        self.assertEqual(window.controller.applied_presets, [])
 
     def test_on_run_requested_skips_incompatible_selected_preset_items(self) -> None:
         window = self._FakeWindow()
@@ -222,15 +220,13 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         coordinator.start_worker = _capture_start_worker  # type: ignore[method-assign]
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=False,
+                edit_source=BatchEditSource.CHOSEN_PRESET,
                 auto_export=False,
                 preview_skip_mode=True,
                 export_name_template="{stem}",
                 avoid_overwrite=True,
                 export_directory=None,
                 selected_asset_ids=("asset-a", "asset-b"),
-                apply_active_edits=False,
-                apply_selected_preset=True,
                 selected_preset_name="Photo Recover",
             )
         )
@@ -255,15 +251,13 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         coordinator.start_worker = _capture_start_worker  # type: ignore[method-assign]
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=False,
+                edit_source=BatchEditSource.KEEP_EACH,
                 auto_export=False,
                 preview_skip_mode=True,
                 export_name_template="{stem}",
                 avoid_overwrite=True,
                 export_directory=None,
                 selected_asset_ids=("asset-b",),
-                apply_active_edits=False,
-                apply_selected_preset=False,
                 selected_preset_name="",
                 background_removal_override="black",
             )
@@ -288,15 +282,13 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         coordinator.start_worker = _capture_start_worker  # type: ignore[method-assign]
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=False,
+                edit_source=BatchEditSource.CHOSEN_PRESET,
                 auto_export=False,
                 preview_skip_mode=True,
                 export_name_template="{stem}",
                 avoid_overwrite=True,
                 export_directory=None,
                 selected_asset_ids=("asset-b",),
-                apply_active_edits=False,
-                apply_selected_preset=True,
                 selected_preset_name="",
             )
         )
@@ -315,7 +307,7 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         coordinator.start_worker = _capture_start_worker  # type: ignore[method-assign]
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=True,
+                edit_source=BatchEditSource.SMART_MATCH,
                 auto_export=True,
                 preview_skip_mode=True,
                 export_name_template="{stem}",
@@ -338,7 +330,7 @@ class BatchCoordinatorSelectionTests(unittest.TestCase):
         coordinator.start_worker = _capture_start_worker  # type: ignore[method-assign]
         coordinator.on_run_requested(
             SimpleNamespace(
-                auto_preset=True,
+                edit_source=BatchEditSource.KEEP_EACH,
                 auto_export=False,
                 preview_skip_mode=True,
                 export_name_template="{stem}",

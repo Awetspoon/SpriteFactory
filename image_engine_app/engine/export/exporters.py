@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from image_engine_app.engine.models import ExportFormat, ExportSettings, SettingsState
+from image_engine_app.engine.models import ExportFormat, ExportSettings, GifSettings, SettingsState
 from image_engine_app.engine.process.light_steps import render_light_image
 
 
@@ -38,6 +38,8 @@ class ExportRequest:
     has_alpha: bool = False
     source_path: str | Path | None = None
     light_settings: SettingsState | None = None
+    gif_settings: GifSettings | None = None
+    dpi: int = 72
 
 
 @dataclass
@@ -96,16 +98,15 @@ def export_image(request: ExportRequest) -> ExportResult:
 
     try:
         with Image.open(src) as im:
+            source_metadata = _metadata_save_kwargs(im, fmt, request.export_settings)
             im.load()
 
             is_animated = bool(getattr(im, "is_animated", False)) and int(getattr(im, "n_frames", 1) or 1) > 1
             if fmt is ExportFormat.GIF and is_animated:
-                kwargs = _build_save_kwargs(fmt, request.export_settings)
                 _save_gif_animated(
                     im,
                     out_path,
-                    request.export_settings,
-                    kwargs,
+                    gif_settings=request.gif_settings,
                     target_size=(None if request.light_settings is not None else (target_w, target_h)),
                     light_settings=request.light_settings,
                 )
@@ -132,12 +133,20 @@ def export_image(request: ExportRequest) -> ExportResult:
             )
 
             save_kwargs = _build_save_kwargs(fmt, request.export_settings)
+            save_kwargs.update(source_metadata)
 
-            dpi = getattr(request.export_settings, "dpi", None)
-            if dpi is None:
-                dpi = 72
             if fmt in (ExportFormat.PNG, ExportFormat.JPG, ExportFormat.TIFF):
-                save_kwargs.setdefault("dpi", (int(dpi), int(dpi)))
+                dpi = max(1, int(request.dpi or 72))
+                save_kwargs.setdefault("dpi", (dpi, dpi))
+
+            if fmt is ExportFormat.GIF:
+                gif = request.gif_settings or GifSettings()
+                im = _quantize_gif_frame(
+                    im.convert("RGBA"),
+                    palette_limit=int(gif.palette_size),
+                    transparency_threshold=24,
+                    dither_strength=float(gif.dither_strength),
+                )
 
             _save_image(im, out_path, fmt, save_kwargs)
 
@@ -222,31 +231,36 @@ def export_generated_placeholder(
 
     try:
         if resolved_fmt is ExportFormat.GIF and int(request.frame_count or 1) > 1:
+            gif = request.gif_settings or GifSettings()
             frames = [
                 _build_placeholder_image(request, size=size, frame_variant=0),
                 _build_placeholder_image(request, size=size, frame_variant=1),
             ]
             save_kwargs = _build_save_kwargs(resolved_fmt, request.export_settings)
             adaptive_palette = getattr(Image, "ADAPTIVE", 1)
-            first = frames[0].convert("P", palette=adaptive_palette, colors=256)
-            rest = [frame.convert("P", palette=adaptive_palette, colors=256) for frame in frames[1:]]
+            palette_size = max(2, min(256, int(gif.palette_size or 256)))
+            first = frames[0].convert("P", palette=adaptive_palette, colors=palette_size)
+            rest = [frame.convert("P", palette=adaptive_palette, colors=palette_size) for frame in frames[1:]]
+            delay = max(20, int(gif.frame_delay_ms or 120))
+            gif_kwargs = {
+                "save_all": True,
+                "append_images": rest,
+                "duration": [delay for _ in frames],
+                "optimize": bool(gif.frame_optimize),
+            }
+            if bool(gif.loop):
+                gif_kwargs["loop"] = 0
             first.save(
                 out_path,
                 format="GIF",
-                save_all=True,
-                append_images=rest,
-                duration=[120 for _ in frames],
-                loop=0,
-                optimize=bool(save_kwargs.get("optimize", True)),
+                **gif_kwargs,
             )
         else:
             image = _build_placeholder_image(request, size=size, frame_variant=0)
             image = _normalize_image_for_format(image, resolved_fmt, prefer_alpha=request.has_alpha)
             save_kwargs = _build_save_kwargs(resolved_fmt, request.export_settings)
             if resolved_fmt in (ExportFormat.PNG, ExportFormat.JPG, ExportFormat.TIFF):
-                dpi = getattr(request.export_settings, "dpi", None)
-                if dpi is None:
-                    dpi = 72
+                dpi = max(1, int(request.dpi or 72))
                 save_kwargs.setdefault("dpi", (int(dpi), int(dpi)))
             _save_image(image, out_path, resolved_fmt, save_kwargs)
     except Exception:
@@ -332,6 +346,11 @@ def _build_save_kwargs(fmt: ExportFormat, settings: ExportSettings) -> dict:
         kwargs["quality"] = int(settings.quality)
         kwargs["optimize"] = True
         kwargs["progressive"] = True
+        kwargs["subsampling"] = {
+            "444": 0,
+            "422": 1,
+            "420": 2,
+        }.get(getattr(settings.chroma_subsampling, "value", "auto"), -1)
     elif fmt is ExportFormat.PNG:
         kwargs["compress_level"] = int(settings.compression_level)
         kwargs["optimize"] = True
@@ -344,6 +363,25 @@ def _build_save_kwargs(fmt: ExportFormat, settings: ExportSettings) -> dict:
         kwargs["compression"] = "tiff_deflate"
     elif fmt is ExportFormat.ICO:
         kwargs["ico_sizes"] = list(getattr(settings, "ico_sizes", [16, 32, 48, 64, 128, 256]))
+    return kwargs
+
+
+def _metadata_save_kwargs(image, fmt: ExportFormat, settings: ExportSettings) -> dict:
+    """Preserve supported source metadata only when the user asks to keep it."""
+
+    if bool(settings.strip_metadata):
+        return {}
+
+    info = dict(getattr(image, "info", {}) or {})
+    kwargs: dict = {}
+    icc_profile = info.get("icc_profile")
+    if isinstance(icc_profile, (bytes, bytearray)) and icc_profile:
+        kwargs["icc_profile"] = bytes(icc_profile)
+
+    exif = info.get("exif")
+    if fmt in {ExportFormat.JPG, ExportFormat.WEBP, ExportFormat.PNG, ExportFormat.TIFF}:
+        if isinstance(exif, (bytes, bytearray)) and exif:
+            kwargs["exif"] = bytes(exif)
     return kwargs
 
 
@@ -484,9 +522,8 @@ def _format_supports_alpha(fmt: ExportFormat) -> bool:
 def _save_gif_animated(
     im,
     out_path: Path,
-    settings: ExportSettings,
-    kwargs: dict,
     *,
+    gif_settings: GifSettings | None = None,
     target_size: tuple[int, int] | None = None,
     light_settings: SettingsState | None = None,
 ) -> None:
@@ -503,9 +540,10 @@ def _save_gif_animated(
     frames = []
     durations: list[int] = []
     base_duration = int(getattr(im, "info", {}).get("duration", 40) or 40)
-    loop = int(getattr(im, "info", {}).get("loop", 0) or 0)
     disposal = getattr(im, "info", {}).get("disposal", None)
-    palette_limit = max(2, min(256, int(getattr(settings, "palette_limit", 256) or 256)))
+    gif = gif_settings or getattr(light_settings, "gif", None) or GifSettings()
+    palette_limit = max(2, min(256, int(gif.palette_size or 256)))
+    delay_override = max(0, int(gif.frame_delay_ms or 0))
 
     for frame in ImageSequence.Iterator(im):
         rgba = frame.convert("RGBA")
@@ -513,11 +551,13 @@ def _save_gif_animated(
             rgba = render_light_image(rgba, light_settings, target_size=target)
         elif target is not None and rgba.size != target:
             rgba = rgba.resize(target, resample=getattr(Image.Resampling, "NEAREST", Image.NEAREST))
-        durations.append(int(getattr(frame, "info", {}).get("duration", base_duration) or base_duration))
+        source_duration = int(getattr(frame, "info", {}).get("duration", base_duration) or base_duration)
+        durations.append(delay_override or source_duration)
         quantized = _quantize_gif_frame(
             rgba,
             palette_limit=palette_limit,
             transparency_threshold=24,
+            dither_strength=float(gif.dither_strength),
         )
         frames.append(quantized)
 
@@ -526,16 +566,19 @@ def _save_gif_animated(
 
     first = frames[0]
     rest = frames[1:]
+    if not bool(gif.loop):
+        for frame in frames:
+            frame.info.pop("loop", None)
     save_kwargs: dict = {
         "save_all": True,
         "append_images": rest,
         "duration": durations if len(durations) > 1 else durations[0],
-        "loop": loop,
     }
+    if bool(gif.loop):
+        save_kwargs["loop"] = 0
     if disposal is not None:
         save_kwargs["disposal"] = disposal
-    if "optimize" in kwargs:
-        save_kwargs["optimize"] = bool(kwargs.get("optimize"))
+    save_kwargs["optimize"] = bool(gif.frame_optimize)
     save_kwargs.setdefault("disposal", 2)
 
     first.save(out_path, format="GIF", **save_kwargs)
@@ -546,12 +589,14 @@ def _quantize_gif_frame(
     *,
     palette_limit: int,
     transparency_threshold: int,
+    dither_strength: float = 0.0,
 ):
     """Quantize an RGBA frame for GIF while preserving binary transparency."""
 
     from PIL import Image  # type: ignore
 
     frame = rgba.convert("RGBA")
+    dither = Image.Dither.FLOYDSTEINBERG if float(dither_strength) > 0.0 else Image.Dither.NONE
     alpha = frame.getchannel("A")
     transparent_mask = alpha.point(
         lambda value: 255 if int(value) <= int(transparency_threshold) else 0,
@@ -559,10 +604,18 @@ def _quantize_gif_frame(
     )
 
     if transparent_mask.getbbox() is None:
-        return frame.quantize(colors=max(2, min(256, int(palette_limit or 256))), method=getattr(Image, "FASTOCTREE", 2))
+        return frame.quantize(
+            colors=max(2, min(256, int(palette_limit or 256))),
+            method=getattr(Image, "FASTOCTREE", 2),
+            dither=dither,
+        )
 
     rgb = frame.convert("RGB")
-    quantized = rgb.quantize(colors=max(2, min(255, int(palette_limit or 256) - 1)), method=getattr(Image, "FASTOCTREE", 2))
+    quantized = rgb.quantize(
+        colors=max(2, min(255, int(palette_limit or 256) - 1)),
+        method=getattr(Image, "FASTOCTREE", 2),
+        dither=dither,
+    )
 
     palette = list(quantized.getpalette() or [])
     if len(palette) < 768:

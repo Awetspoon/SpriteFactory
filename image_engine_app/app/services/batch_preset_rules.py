@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from image_engine_app.app.services.preset_library import PresetLibrary
-from image_engine_app.engine.models import EditMode, ExportFormat, ExportProfile, PresetModel
+from image_engine_app.engine.models import PresetModel
+from image_engine_app.engine.presets import (
+    ARTIFACT_CLEANUP,
+    GIF_SAFE_CLEANUP,
+    PHOTO_RECOVER,
+    PIXEL_CLEAN_UPSCALE,
+)
 
 
 def build_batch_auto_preset_rules(library: PresetLibrary, *, enabled: bool) -> dict[str, list[PresetModel]]:
@@ -11,58 +17,15 @@ def build_batch_auto_preset_rules(library: PresetLibrary, *, enabled: bool) -> d
     if not enabled:
         return auto_preset_rules
 
-    if library.has_preset("Pixel Clean Upscale"):
-        pixel_cleanup = library.get("Pixel Clean Upscale")
+    if library.has_preset(PIXEL_CLEAN_UPSCALE):
+        pixel_cleanup = library.get(PIXEL_CLEAN_UPSCALE)
         auto_preset_rules["pixel_art"] = [pixel_cleanup]
         auto_preset_rules["sprite_sheet"] = [pixel_cleanup]
-    if library.has_preset("Photo Recover"):
-        auto_preset_rules["photo"] = [library.get("Photo Recover")]
-    if library.has_preset("GIF Safe Cleanup"):
-        auto_preset_rules["animation"] = [library.get("GIF Safe Cleanup")]
-    if library.has_preset("Artifact Cleanup"):
-        auto_preset_rules.setdefault("artwork", []).append(library.get("Artifact Cleanup"))
+    if library.has_preset(PHOTO_RECOVER):
+        auto_preset_rules["photo"] = [library.get(PHOTO_RECOVER)]
+    if library.has_preset(GIF_SAFE_CLEANUP):
+        auto_preset_rules["animation"] = [library.get(GIF_SAFE_CLEANUP)]
+    if library.has_preset(ARTIFACT_CLEANUP):
+        auto_preset_rules.setdefault("artwork", []).append(library.get(ARTIFACT_CLEANUP))
 
     return auto_preset_rules
-
-
-def build_batch_per_source_preset_rules(*, enabled: bool) -> dict[str, list[PresetModel]]:
-    if not enabled:
-        return {}
-
-    return {
-        "gif": [
-            PresetModel(
-                name="Batch GIF Export",
-                description="Batch export rule for animated sources",
-                settings_delta={"export": {"format": ExportFormat.GIF.value, "palette_limit": 256}},
-                uses_heavy_tools=False,
-                requires_apply=False,
-                mode_min=EditMode.ADVANCED,
-            )
-        ],
-        "png": [
-            PresetModel(
-                name="Batch PNG Export",
-                description="Batch export rule for PNG sources",
-                settings_delta={"export": {"format": ExportFormat.PNG.value}},
-                uses_heavy_tools=False,
-                requires_apply=False,
-                mode_min=EditMode.ADVANCED,
-            )
-        ],
-        "spritesheet": [
-            PresetModel(
-                name="Batch Spritesheet Export",
-                description="Batch export rule for spritesheets",
-                settings_delta={
-                    "export": {
-                        "export_profile": ExportProfile.APP_ASSET.value,
-                        "format": ExportFormat.PNG.value,
-                    }
-                },
-                uses_heavy_tools=False,
-                requires_apply=False,
-                mode_min=EditMode.ADVANCED,
-            )
-        ],
-    }

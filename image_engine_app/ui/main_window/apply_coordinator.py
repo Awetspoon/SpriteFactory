@@ -82,7 +82,6 @@ class ApplyCoordinator:
             return
 
         try:
-            self._window.controller.reset_asset_settings_to_defaults(asset)
             summary = self._window.controller.apply_named_preset(asset, preset_name)
         except PresetApplyError as exc:
             self._window._status(f"Preset skipped: {exc}")
@@ -123,7 +122,7 @@ class ApplyCoordinator:
             return
 
         try:
-            self._window.controller.reset_asset_settings_to_defaults(asset)
+            self._window.controller.restore_asset_detected_settings(asset)
             self._window.controller.apply_light_pipeline(asset)
             self._window.ui_state.set_active_asset(asset)
             self._window.ui_state.set_heavy_queue_counts(
@@ -131,7 +130,7 @@ class ApplyCoordinator:
                 running_count=0,
             )
             self._window._refresh_export_prediction()
-            self._window._status("Reset active asset edits to defaults")
+            self._window._status("Reset active asset edits to detected controls")
         except Exception as exc:
             self._window._status(f"Reset failed: {exc}")
 

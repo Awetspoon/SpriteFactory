@@ -9,7 +9,6 @@ __all__ = [
     "ApplyCoordinator",
     "BatchCoordinator",
     "ControlStrip",
-    "EncodingCoordinator",
     "ExportBar",
     "ExportCoordinator",
     "ImageEngineMainWindow",
@@ -29,7 +28,6 @@ _EXPORT_MODULES = {
     "WorkspaceAssetTabs": "asset_tabs",
     "BatchCoordinator": "batch_coordinator",
     "ControlStrip": "control_strip",
-    "EncodingCoordinator": "encoding_coordinator",
     "ExportBar": "export_bar",
     "ExportCoordinator": "export_coordinator",
     "ImageEngineMainWindow": "main_window",
@@ -59,7 +57,6 @@ if TYPE_CHECKING:
     from .asset_tabs import WorkspaceAssetTabs
     from .batch_coordinator import BatchCoordinator
     from .control_strip import ControlStrip
-    from .encoding_coordinator import EncodingCoordinator
     from .export_bar import ExportBar
     from .export_coordinator import ExportCoordinator
     from .local_import_coordinator import LocalImportCoordinator

@@ -93,9 +93,7 @@ class PreviewPanel(QWidget):
 
         self._ui_state = ui_state
         ui_state.active_asset_changed.connect(self._on_active_asset_changed)
-        ui_state.sync_changed.connect(self._on_sync_changed)
         ui_state.reset_view_requested.connect(self._on_reset_view_requested)
-        self._on_sync_changed(ui_state.active_asset.edit_state.sync_current_final if ui_state.active_asset else True)
         self._on_active_asset_changed(ui_state.active_asset)
 
     def _build_ui(self) -> None:
@@ -258,11 +256,6 @@ class PreviewPanel(QWidget):
             container.setStyleSheet(
                 f"QFrame#previewPaneContainer {{ border-right: {border}; }}"
             )
-
-    def _on_sync_changed(self, enabled: bool) -> None:
-        _ = enabled
-        # Sync still matters to edit behavior, but the preview layout is now fixed to Current + Final.
-        self._layout_panes()
 
     def _on_zoom_snap_toggled(self, enabled: bool) -> None:
         self._zoom_snap_enabled = bool(enabled)
@@ -685,15 +678,10 @@ class PreviewPanel(QWidget):
         source_path = self._resolve_preview_path(asset)
 
         if view_key == "current":
-            candidates = (
-                getattr(asset, "derived_current_path", None),
-                source_path,
-                getattr(asset, "derived_final_path", None),
-            )
+            candidates = (source_path,)
         else:
             candidates = (
                 getattr(asset, "derived_final_path", None),
-                getattr(asset, "derived_current_path", None),
                 source_path,
             )
 

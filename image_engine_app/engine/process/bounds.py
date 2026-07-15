@@ -275,8 +275,8 @@ def clamp_settings_for_mode(
     clamped = deepcopy(settings)
     for path, bounds in (bounds_map or DEFAULT_SETTING_BOUNDS).items():
         current_value = _get_path(clamped, path)
-        if current_value is None and path.rsplit(".", 1)[-1] in {"width", "height", "palette_limit"}:
-            # Optional dimensions/palette limits may legitimately be None.
+        if current_value is None and path.rsplit(".", 1)[-1] in {"width", "height"}:
+            # Optional dimensions may legitimately be None.
             continue
         _set_path(clamped, path, bounds.clamp(current_value, mode=mode))
     return clamped

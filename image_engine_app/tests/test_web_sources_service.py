@@ -266,6 +266,60 @@ class WebSourcesServiceTests(unittest.TestCase):
                 headers["Referer"],
             )
 
+    def test_download_items_keeps_going_when_media_resolution_fails(self) -> None:
+        imported_urls: list[str] = []
+
+        def import_url_source(url, **_kwargs):  # noqa: ANN001
+            imported_urls.append(url)
+            return SimpleNamespace(
+                asset=AssetRecord(
+                    source_type=SourceType.WEBPAGE_ITEM,
+                    source_uri=url,
+                    cache_path="good.png",
+                    original_name="good.png",
+                    format=AssetFormat.PNG,
+                )
+            )
+
+        service = WebSourcesService(
+            app_paths=None,
+            scan_webpage_images=lambda *_args, **_kwargs: None,
+            import_url_source=import_url_source,
+            build_web_asset_from_file=lambda **_kwargs: None,
+        )
+
+        def resolve_download_url(*, item, canonical_url, **_kwargs):  # noqa: ANN001
+            if item.name == "bad.png":
+                raise TimeoutError("media lookup timed out")
+            return canonical_url
+
+        service.resolve_download_url = resolve_download_url  # type: ignore[method-assign]
+        items = [
+            WebItem(
+                url="https://example.com/bad.png",
+                name="bad.png",
+                ext=".png",
+                confidence=Confidence.DIRECT,
+            ),
+            WebItem(
+                url="https://example.com/good.png",
+                name="good.png",
+                ext=".png",
+                confidence=Confidence.DIRECT,
+            ),
+        ]
+
+        report = service.download_items(
+            items,
+            ImportTarget.NORMAL,
+            smart=SmartOptions(show_likely=False, auto_sort=True, skip_duplicates=False, allow_zip=True),
+        )
+
+        self.assertEqual(["https://example.com/good.png"], imported_urls)
+        self.assertEqual(1, len(report.assets))
+        self.assertEqual(1, len(report.failed))
+        self.assertIn("bad.png: media lookup timed out", report.failed[0])
+
 
 if __name__ == "__main__":
     unittest.main()

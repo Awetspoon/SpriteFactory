@@ -530,15 +530,47 @@ def build_app_stylesheet() -> str:
         color: #285d5b;
         font-weight: 800;
     }
+    QLabel#webSourcesCountBadge {
+        border: 1px solid #d2d9d3;
+        border-radius: 8px;
+        background: #f5f3ed;
+        color: #5a6d72;
+        padding: 3px 7px;
+        font-size: 9px;
+        font-weight: 700;
+    }
     QListWidget#webSourcesIndexList,
-    QListWidget#webSourcesResultsList,
-    QPlainTextEdit#webSourcesManualList {
+    QTreeWidget#webSourcesSavedTree,
+    QTreeWidget#webSourcesResultsTree,
+    QPlainTextEdit#webSourcesUrlList {
         border: 1px solid #d2d9d3;
         border-radius: 9px;
         background: #fffdfa;
         padding: 5px;
         color: #243940;
         font-size: 10px;
+    }
+    QListWidget#webSourcesIndexList::item,
+    QTreeWidget#webSourcesSavedTree::item,
+    QTreeWidget#webSourcesResultsTree::item {
+        min-height: 20px;
+        border-radius: 5px;
+        padding: 2px 5px;
+    }
+    QListWidget#webSourcesIndexList::item:selected,
+    QTreeWidget#webSourcesSavedTree::item:selected,
+    QTreeWidget#webSourcesResultsTree::item:selected {
+        background: #e8f2ee;
+        color: #254b4d;
+    }
+    QTreeWidget#webSourcesResultsTree QHeaderView::section {
+        background: #f2f0ea;
+        color: #465b61;
+        border: none;
+        border-bottom: 1px solid #d3dad4;
+        padding: 4px 6px;
+        font-size: 9px;
+        font-weight: 700;
     }
     QFrame#previewPanelFrame {
         border: 1px solid #cfd8d4;

@@ -25,3 +25,6 @@ spritefactory-audit = "image_engine_app.app.audit:main"
 [tool.setuptools.packages.find]
 include = ["image_engine_app*", "image_engine_v3*"]
 exclude = ["image_engine_app.tests*"]
+
+[tool.setuptools.package-data]
+image_engine_app = ["assets/icons/*.ico", "assets/icons/*.png", "docs/*.json"]

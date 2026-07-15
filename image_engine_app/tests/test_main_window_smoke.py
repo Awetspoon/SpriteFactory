@@ -20,7 +20,8 @@ except Exception:  # pragma: no cover - optional dependency in some environments
 from image_engine_app.app.paths import ensure_app_paths  # noqa: E402
 from image_engine_app.app.settings_store import save_path_preferences  # noqa: E402
 from image_engine_app.app.ui_controller import ImageEngineUIController  # noqa: E402
-from image_engine_app.engine.models import AssetRecord, EditMode, SessionState  # noqa: E402
+from image_engine_app.engine.models import AssetFormat, AssetRecord, SessionState  # noqa: E402
+from image_engine_app.engine.process.edit_baseline import capture_detected_settings  # noqa: E402
 from image_engine_app.ui.main_window.main_window import ImageEngineMainWindow  # noqa: E402
 
 
@@ -59,6 +60,26 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.assertTrue(hasattr(window.web_sources_panel, "set_sources"))
             self.assertEqual(3, len(window._page_nav_buttons))
             self.assertTrue(window.findChildren(QToolButton, "shellPageRailButton"))
+            toolbar_buttons = window.findChildren(QToolButton, "toolbarMenuButton")
+            toolbar_labels = [button.text() for button in toolbar_buttons]
+            self.assertEqual(1, toolbar_labels.count("File"))
+            self.assertNotIn("Session", toolbar_labels)
+            self.assertNotIn("Import", toolbar_labels)
+            self.assertNotIn("Presets", toolbar_labels)
+            preset_actions = [action.text() for action in window.control_strip._preset_menu.actions()]
+            self.assertIn("Manage Presets...", preset_actions)
+            file_button = next(button for button in toolbar_buttons if button.text() == "File")
+            file_actions = [action.text() for action in file_button.menu().actions() if not action.isSeparator()]
+            self.assertEqual(
+                [
+                    "New Workspace",
+                    "Open Workspace...",
+                    "Save Workspace...",
+                    "Add Files...",
+                    "Add Folder...",
+                ],
+                file_actions,
+            )
             self.assertFalse(hasattr(window.asset_tabs, "_import_button"))
             self.assertIsNotNone(window._workspace_splitter)
             self.assertIsNotNone(window._workspace_editor_splitter)
@@ -71,8 +92,16 @@ class MainWindowSmokeTests(unittest.TestCase):
             self.assertTrue(window._workspace_inspector_panel.isVisible())
             guide = window.findChild(QTextBrowser, "shellGuideBrowser")
             self.assertIsNotNone(guide)
-            self.assertIn("Skip", guide.toPlainText())
-            self.assertIn("remove black", guide.toPlainText().lower())
+            guide_text = guide.toPlainText()
+            self.assertIn("Skip", guide_text)
+            self.assertIn("remove black", guide_text.lower())
+            self.assertIn("1. Scan Pages", guide_text)
+            self.assertIn("2. Saved Pages", guide_text)
+            self.assertIn("3. Find Linked Pages", guide_text)
+            self.assertIn("4. Found Files and Download", guide_text)
+            self.assertIn("Only Clear Found Files empties the result basket", guide_text)
+            self.assertIn("New Workspace", guide_text)
+            self.assertIn("Add Files", guide_text)
             window._set_preview_view_mode(window.preview_panel.VIEW_FINAL)
             self.assertEqual(window.preview_panel.preview_view_mode(), window.preview_panel.VIEW_FINAL)
             self.assertFalse(window.preview_panel._pane_containers["current"].isVisible())
@@ -86,7 +115,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_new_session_updates_status_bar_without_error(self) -> None:
+    def test_new_workspace_updates_status_bar_without_error(self) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         app = QApplication.instance()
         owns_app = app is None
@@ -97,14 +126,47 @@ class MainWindowSmokeTests(unittest.TestCase):
         window = ImageEngineMainWindow(controller=controller)
 
         try:
-            asset = AssetRecord(id="asset-reset-1", original_name="sprite.png")
-            window.set_active_asset(asset)
-            window.ui_state.set_mode(EditMode.EXPERT)
-            window._new_session()
+            window._new_workspace()
             self.assertIsNotNone(window.ui_state.session)
             self.assertIsNone(window.ui_state.active_asset)
             self.assertEqual([], window.workspace_assets)
-            self.assertEqual(window.statusBar().currentMessage(), "New session created")
+            self.assertEqual(window.statusBar().currentMessage(), "New workspace created")
+        finally:
+            window.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_preset_updates_visible_controls_and_reset_restores_detected_baseline(self) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        app = QApplication.instance()
+        owns_app = app is None
+        if app is None:
+            app = QApplication([])
+
+        controller = ImageEngineUIController()
+        window = ImageEngineMainWindow(controller=controller)
+        asset = AssetRecord(id="preset-flow", original_name="hero.png", format=AssetFormat.PNG)
+        asset.classification_tags = ["pixel_art"]
+        asset.edit_state.settings.detail.sharpen_amount = 0.07
+        capture_detected_settings(asset)
+
+        try:
+            window.set_active_asset(asset)
+            window._on_control_preset_selected("Sprite Crisp 4x")
+            app.processEvents()
+
+            self.assertEqual(400.0, asset.edit_state.settings.pixel.resize_percent)
+            self.assertEqual(400.0, window.settings_panel._resize_percent.value())
+            self.assertEqual("scale_4x", window.settings_panel._output_size.currentData())
+            self.assertNotEqual(0.07, asset.edit_state.settings.detail.sharpen_amount)
+
+            window._on_global_reset_requested()
+            app.processEvents()
+
+            self.assertEqual(100.0, asset.edit_state.settings.pixel.resize_percent)
+            self.assertEqual(100.0, window.settings_panel._resize_percent.value())
+            self.assertEqual("original", window.settings_panel._output_size.currentData())
+            self.assertEqual(0.07, asset.edit_state.settings.detail.sharpen_amount)
         finally:
             window.close()
             if owns_app and app is not None:

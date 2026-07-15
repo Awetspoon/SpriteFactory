@@ -5,11 +5,10 @@ Keep these dataclasses small and stable so UI + controller contracts stay safe.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import urlparse, urlunparse
 
 if TYPE_CHECKING:
     from image_engine_app.engine.models import AssetRecord
@@ -26,6 +25,12 @@ class ImportTarget(str, Enum):
     SHINY = "shiny"
     ANIMATED = "animated"
     ITEMS = "items"
+
+
+class ScanOrigin(str, Enum):
+    ENTERED = "entered"
+    SAVED = "saved"
+    LINKED = "linked"
 
 
 @dataclass(frozen=True)
@@ -54,10 +59,105 @@ class SmartOptions:
 
 
 @dataclass(frozen=True)
+class WebScanRequest:
+    """One scan contract shared by entered, saved, and discovered page URLs."""
+
+    urls: tuple[str, ...]
+    smart: SmartOptions = field(default_factory=SmartOptions)
+    origin: ScanOrigin = ScanOrigin.ENTERED
+    website_id: str | None = None
+    area_id: str | None = None
+
+
+@dataclass(frozen=True)
+class WebLinkDiscoveryRequest:
+    url: str
+    website_id: str | None = None
+    area_id: str | None = None
+
+
+@dataclass(frozen=True)
+class WebDownloadRequest:
+    items: tuple[WebItem, ...]
+    smart: SmartOptions = field(default_factory=SmartOptions)
+    target: ImportTarget = ImportTarget.NORMAL
+    website_id: str | None = None
+    area_id: str | None = None
+
+
+@dataclass(frozen=True)
+class WebDiagnosticsRequest:
+    url: str
+
+
+@dataclass(frozen=True)
 class ScanResults:
     items: tuple[WebItem, ...]
     filtered_count: int = 0
     failed_pages: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ScanMergeResult:
+    """Outcome of adding one scan into the persistent Found Files basket."""
+
+    results: ScanResults
+    added_count: int = 0
+    duplicate_count: int = 0
+
+
+def merge_scan_results(existing: ScanResults, incoming: ScanResults) -> ScanMergeResult:
+    """Merge scan items by normalized URL while preserving discovery order."""
+
+    merged_items = list(existing.items)
+    seen = {_scan_item_key(item) for item in merged_items}
+    added_count = 0
+    duplicate_count = 0
+
+    for item in incoming.items:
+        key = _scan_item_key(item)
+        if key in seen:
+            duplicate_count += 1
+            continue
+        seen.add(key)
+        merged_items.append(item)
+        added_count += 1
+
+    return ScanMergeResult(
+        results=ScanResults(
+            items=tuple(merged_items),
+            filtered_count=int(incoming.filtered_count or 0),
+            failed_pages=tuple(incoming.failed_pages or ()),
+        ),
+        added_count=added_count,
+        duplicate_count=duplicate_count,
+    )
+
+
+class FoundFilesStore:
+    """Single source of truth for the persistent Found Files basket."""
+
+    def __init__(self) -> None:
+        self._results = ScanResults(items=())
+
+    @property
+    def results(self) -> ScanResults:
+        return self._results
+
+    @property
+    def items(self) -> tuple[WebItem, ...]:
+        return self._results.items
+
+    def replace(self, results: ScanResults) -> None:
+        self._results = results
+
+    def add(self, results: ScanResults) -> ScanMergeResult:
+        outcome = merge_scan_results(self._results, results)
+        self._results = outcome.results
+        return outcome
+
+    def clear(self) -> None:
+        self._results = ScanResults(items=())
 
 
 @dataclass(frozen=True)
@@ -67,15 +167,6 @@ class DownloadReport:
     failed: tuple[str, ...]
     assets: tuple["AssetRecord", ...] = ()
     cancelled: bool = False
-
-
-def coerce_import_target(value: object, *, default: ImportTarget = ImportTarget.NORMAL) -> ImportTarget:
-    if isinstance(value, ImportTarget):
-        return value
-    try:
-        return ImportTarget(str(value))
-    except Exception:
-        return default
 
 
 def coerce_smart_options(value: object) -> SmartOptions:
@@ -91,94 +182,18 @@ def coerce_smart_options(value: object) -> SmartOptions:
     return SmartOptions()
 
 
-def coerce_web_item(value: object) -> WebItem | None:
-    if isinstance(value, WebItem):
-        return value
-    if not isinstance(value, dict):
-        return None
-
-    url = str(value.get("url", "")).strip()
-    if not url:
-        return None
-
-    confidence_raw = str(value.get("confidence", Confidence.DIRECT.value)).strip().lower()
-    try:
-        confidence = Confidence(confidence_raw)
-    except Exception:
-        confidence = Confidence.DIRECT
-
-    base_name = _name_from_url(url)
-    ext = str(value.get("ext", "")).strip().lower() or _ext_from_url(url)
-
-    return WebItem(
-        url=url,
-        name=str(value.get("name", "")).strip() or base_name,
-        ext=ext,
-        confidence=confidence,
-        preview_url=(str(value.get("preview_url")) if value.get("preview_url") else None),
-        source_page=(str(value.get("source_page")) if value.get("source_page") else None),
+def _scan_item_key(item: WebItem) -> str:
+    raw_url = str(item.url or "").strip()
+    parsed = urlparse(raw_url)
+    if not parsed.scheme or not parsed.netloc:
+        return raw_url.casefold()
+    return urlunparse(
+        (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            "",
+        )
     )
-
-
-def coerce_web_items(raw: object) -> list[WebItem]:
-    if not isinstance(raw, list):
-        return []
-
-    out: list[WebItem] = []
-    for entry in raw:
-        item = coerce_web_item(entry)
-        if item is not None:
-            out.append(item)
-    return out
-
-
-def coerce_web_index_link(value: object) -> WebIndexLink | None:
-    if isinstance(value, WebIndexLink):
-        return value
-    if not isinstance(value, dict):
-        return None
-
-    url = str(value.get("url", "")).strip()
-    if not url:
-        return None
-
-    label = str(value.get("label", "")).strip() or _name_from_url(url)
-    source_page = str(value.get("source_page", "")).strip() or None
-    return WebIndexLink(label=label, url=url, source_page=source_page)
-
-
-def coerce_web_index_links(raw: object) -> list[WebIndexLink]:
-    if not isinstance(raw, list):
-        return []
-
-    out: list[WebIndexLink] = []
-    for entry in raw:
-        link = coerce_web_index_link(entry)
-        if link is not None:
-            out.append(link)
-    return out
-
-
-def _name_from_url(url: str) -> str:
-    parsed = urlparse(url)
-    path_name = unquote(Path(parsed.path).name).strip()
-    if path_name:
-        return path_name
-
-    params = parse_qs(parsed.query or "", keep_blank_values=False)
-    for key in ("filename", "file", "name", "download", "image", "img", "asset", "sprite"):
-        for value in params.get(key, ()):
-            decoded = unquote(str(value or "")).strip()
-            if decoded:
-                return decoded
-
-    return "download"
-
-def _ext_from_url(url: str) -> str:
-    base = url.split("?")[0].split("#")[0]
-    return Path(base).suffix.lower()
-
-
-
-
-

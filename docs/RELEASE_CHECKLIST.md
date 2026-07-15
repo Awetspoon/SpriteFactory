@@ -15,7 +15,7 @@ Run the commands from the repository root.
 
 ## 3) Version + icon
 - [ ] Update `pyinstaller_version_info.py` version strings if needed
-- [ ] Confirm `spritefactory_pro.ico`, `spritefactory.ico`, and PNG icon assets are present and show the current app icon
+- [ ] Confirm `image_engine_app/assets/icons/` contains the current ICO and PNG app icon assets
 
 ## 4) Build one-file release (recommended)
 - [ ] `powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1`

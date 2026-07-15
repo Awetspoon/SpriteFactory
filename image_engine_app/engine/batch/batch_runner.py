@@ -26,10 +26,11 @@ from image_engine_app.engine.models import (
 )
 from image_engine_app.engine.process.heavy_queue import HeavyQueueEngine
 from image_engine_app.engine.process.heavy_runtime import execute_heavy_job
+from image_engine_app.engine.process.edit_baseline import edit_state_from_detected_settings, implied_heavy_jobs
 from image_engine_app.engine.process.light_steps import LightProcessError
 from image_engine_app.engine.process.pipeline import PipelinePhase, ProcessingPlan, ProcessingStep, build_processing_plan
 from image_engine_app.engine.process.preset_compat import preset_matches_asset
-from image_engine_app.engine.process.presets_apply import ViewEditStates, apply_preset_stack
+from image_engine_app.engine.process.presets_apply import apply_preset_to_edit_state
 from image_engine_app.engine.process.preview_support import render_light_pipeline_preview, resolve_export_source, select_export_source_path
 
 
@@ -53,7 +54,6 @@ class BatchRunnerConfig:
     export_dir: str | Path | None = None
     derived_cache_dir: str | Path | None = None
     auto_preset_rules: dict[str, list[PresetModel]] = field(default_factory=dict)
-    per_source_preset_rules: dict[str, list[PresetModel]] = field(default_factory=dict)
     group_outputs: bool = True
     group_outputs_by: str = "source"
     export_name_template: str = "{index:03d}_{stem}"
@@ -359,7 +359,7 @@ class BatchRunner:
             result.processing_plan = None if self.config.preview_skip_mode else self._build_processing_plan(asset)
 
             mark(0.55, "presets")
-            applied_presets = self._apply_auto_presets_if_any(asset)
+            applied_presets = self._apply_smart_preset_if_any(asset)
             result.applied_preset_names = applied_presets
 
             mark(0.63, "light_pipeline")
@@ -519,25 +519,6 @@ class BatchRunner:
 
         return build_processing_plan(steps)
 
-    def _source_rule_keys(self, asset: AssetRecord) -> list[str]:
-        """Return normalized source keys used for per-source preset rules and export grouping."""
-        keys: list[str] = []
-        if asset.capabilities.is_animated or asset.format is AssetFormat.GIF:
-            keys.append("gif")
-        if asset.capabilities.is_sheet:
-            keys.append("spritesheet")
-        if asset.format is AssetFormat.PNG:
-            keys.append("png")
-        elif asset.format is AssetFormat.JPG:
-            keys.append("jpg")
-        elif asset.format is AssetFormat.WEBP:
-            keys.append("webp")
-        elif asset.format is AssetFormat.ICO:
-            keys.append("ico")
-        if not keys:
-            keys.append("other")
-        return keys
-
     def _export_group_folder(self, asset: AssetRecord, predicted_format: str | None) -> str:
         """Choose a folder name for grouping batch exports."""
         if asset.capabilities.is_animated or asset.format is AssetFormat.GIF or (predicted_format or "").lower() == "gif":
@@ -555,49 +536,41 @@ class BatchRunner:
                 return "gifs" if val == "gif" else val
         return "other"
 
-    def _apply_auto_presets_if_any(self, asset: AssetRecord) -> list[str]:
-        if not self.config.auto_preset_rules and not self.config.per_source_preset_rules:
+    def _apply_smart_preset_if_any(self, asset: AssetRecord) -> list[str]:
+        """Choose one compatible smart preset and apply it from the detected baseline."""
+
+        if not self.config.auto_preset_rules:
             return []
 
-        presets_to_apply: list[PresetModel] = []
+        rule_keys: list[str] = []
+        if asset.capabilities.is_animated or asset.format is AssetFormat.GIF:
+            rule_keys.append("animation")
+        if asset.capabilities.is_sheet:
+            rule_keys.append("sprite_sheet")
+        rule_keys.extend(str(tag) for tag in asset.classification_tags)
+
+        selected: PresetModel | None = None
         seen_names: set[str] = set()
-        # Apply per-source rules first (file type / spritesheet / animation)
-        for key in self._source_rule_keys(asset):
-            for preset in self.config.per_source_preset_rules.get(key, []):
-                compatible, _reason = preset_matches_asset(preset, asset)
-                if not compatible:
-                    continue
+        for key in dict.fromkeys(rule_keys):
+            for preset in self.config.auto_preset_rules.get(key, []):
                 if preset.name in seen_names:
                     continue
                 seen_names.add(preset.name)
-                presets_to_apply.append(preset)
-
-        for tag in asset.classification_tags:
-            for preset in self.config.auto_preset_rules.get(tag, []):
                 compatible, _reason = preset_matches_asset(preset, asset)
                 if not compatible:
                     continue
-                if preset.name in seen_names:
-                    continue
-                seen_names.add(preset.name)
-                presets_to_apply.append(preset)
+                selected = preset
+                break
+            if selected is not None:
+                break
 
-        if not presets_to_apply:
+        if selected is None:
             return []
 
-        # The schema keeps one canonical EditState; we emulate current/final views for apply-target rules
-        # and persist the resulting active state back onto the asset.
-        states = ViewEditStates(current=deepcopy(asset.edit_state), final=deepcopy(asset.edit_state))
-        report = apply_preset_stack(presets_to_apply, states=states)
-
-        if report.effective_target is not None and (
-            report.effective_target.value in {"final", "both"} or report.sync_applied
-        ):
-            asset.edit_state = report.states.final
-        else:
-            asset.edit_state = report.states.current
-
-        return report.applied_preset_names
+        baseline_state = edit_state_from_detected_settings(asset)
+        asset.edit_state = apply_preset_to_edit_state(selected, baseline_state)
+        asset.edit_state.queued_heavy_jobs = implied_heavy_jobs(selected, asset.edit_state)
+        return [selected.name]
 
     def _run_light_pipeline(self, asset: AssetRecord) -> None:
         """Render the light (non-AI) pipeline to a derived Final output, if configured."""
@@ -637,6 +610,7 @@ class BatchRunner:
                 width=max(1, width),
                 height=max(1, height),
                 export_settings=asset.edit_state.settings.export,
+                gif_settings=asset.edit_state.settings.gif,
                 has_alpha=asset.capabilities.has_alpha,
                 is_animated=asset.capabilities.is_animated,
                 frame_count=8 if asset.capabilities.is_animated else 1,
@@ -690,6 +664,8 @@ class BatchRunner:
                 width=max(1, width),
                 height=max(1, height),
                 export_settings=asset.edit_state.settings.export,
+                gif_settings=asset.edit_state.settings.gif,
+                dpi=int(asset.edit_state.settings.pixel.dpi or 72),
                 asset_id=asset.id,
                 frame_count=8 if asset.capabilities.is_animated else 1,
                 has_alpha=asset.capabilities.has_alpha,

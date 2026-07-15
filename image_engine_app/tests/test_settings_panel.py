@@ -40,15 +40,11 @@ class SettingsPanelTests(unittest.TestCase):
 
         try:
             self.assertIsNotNone(panel._temperature)
-            self.assertIsNotNone(panel._ai_bg_remove)
             self.assertIsNotNone(panel._export_format)
-            self.assertIsNotNone(panel._export_profile)
             self.assertIsNotNone(panel._ico_sizes)
 
             self.assertFalse(panel._temperature.isEnabled())
-            self.assertFalse(panel._ai_bg_remove.isEnabled())
             self.assertFalse(panel._export_format.isEnabled())
-            self.assertFalse(panel._export_profile.isEnabled())
             self.assertFalse(panel._ico_sizes.isEnabled())
         finally:
             panel.close()
@@ -64,10 +60,8 @@ class SettingsPanelTests(unittest.TestCase):
             ui_state.set_active_asset(asset)
 
             self.assertTrue(panel._temperature.isEnabled())
-            self.assertTrue(panel._ai_bg_remove.isEnabled())
             self.assertTrue(panel._export_format.isEnabled())
-            self.assertTrue(panel._export_profile.isEnabled())
-            self.assertTrue(panel._ico_sizes.isEnabled())
+            self.assertFalse(panel._ico_sizes.isEnabled())
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -90,7 +84,7 @@ class SettingsPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_resize_change_scales_dpi(self) -> None:
+    def test_resize_change_does_not_change_metadata_dpi(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -99,15 +93,58 @@ class SettingsPanelTests(unittest.TestCase):
 
             panel._resize_percent.setValue(200.0)
 
-            self.assertEqual(144, panel._dpi.value())
+            self.assertEqual(72, panel._dpi.value())
             self.assertEqual(200.0, float(asset.edit_state.settings.pixel.resize_percent))
-            self.assertEqual(144, int(asset.edit_state.settings.pixel.dpi))
+            self.assertEqual(72, int(asset.edit_state.settings.pixel.dpi))
         finally:
             panel.close()
             if owns_app and app is not None:
                 app.quit()
 
-    def test_dpi_change_scales_resize_percent(self) -> None:
+    def test_output_size_choice_updates_real_pixel_controls(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-size", original_name="sprite.png")
+            ui_state.set_active_asset(asset)
+
+            index = panel._output_size.findData("height_720")
+            panel._output_size.setCurrentIndex(index)
+
+            self.assertEqual(100.0, asset.edit_state.settings.pixel.resize_percent)
+            self.assertIsNone(asset.edit_state.settings.pixel.width)
+            self.assertEqual(720, asset.edit_state.settings.pixel.height)
+            self.assertEqual(720, panel._target_height.value())
+
+            index = panel._output_size.findData("scale_4x")
+            panel._output_size.setCurrentIndex(index)
+
+            self.assertEqual(400.0, asset.edit_state.settings.pixel.resize_percent)
+            self.assertIsNone(asset.edit_state.settings.pixel.width)
+            self.assertIsNone(asset.edit_state.settings.pixel.height)
+            self.assertEqual(400.0, panel._resize_percent.value())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_manual_size_controls_switch_chooser_to_custom(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-custom-size", original_name="sprite.png")
+            ui_state.set_active_asset(asset)
+
+            panel._target_width.setValue(512)
+
+            self.assertEqual("custom", panel._output_size.currentData())
+            self.assertEqual(512, asset.edit_state.settings.pixel.width)
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_dpi_change_does_not_resize_pixels(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -116,9 +153,28 @@ class SettingsPanelTests(unittest.TestCase):
 
             panel._dpi.setValue(144)
 
-            self.assertEqual(200.0, float(panel._resize_percent.value()))
-            self.assertEqual(200.0, float(asset.edit_state.settings.pixel.resize_percent))
+            self.assertEqual(100.0, float(panel._resize_percent.value()))
+            self.assertEqual(100.0, float(asset.edit_state.settings.pixel.resize_percent))
             self.assertEqual(144, int(asset.edit_state.settings.pixel.dpi))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_visual_control_always_requests_final_refresh_for_legacy_sessions(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-live-final", original_name="sprite.png")
+            asset.edit_state.auto_apply_light = False
+            ui_state.set_active_asset(asset)
+            calls: list[str] = []
+            ui_state.light_preview_requested.connect(lambda: calls.append("refresh"))
+
+            panel._brightness.setValue(0.25)
+
+            self.assertEqual(["refresh"], calls)
+            self.assertEqual(0.25, asset.edit_state.settings.color.brightness)
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -145,26 +201,6 @@ class SettingsPanelTests(unittest.TestCase):
             panel._white_bg_mode.setCurrentIndex(2)
             self.assertFalse(asset.edit_state.settings.alpha.remove_white_bg)
             self.assertEqual("black", asset.edit_state.settings.alpha.background_removal_mode)
-        finally:
-            panel.close()
-            if owns_app and app is not None:
-                app.quit()
-
-    def test_open_encoding_button_emits_signal(self) -> None:
-        app, owns_app, panel, ui_state = self._setup_panel()
-
-        try:
-            asset = AssetRecord(id="asset-6", original_name="expert.png")
-            asset.edit_state.mode = EditMode.EXPERT
-            ui_state.set_active_asset(asset)
-
-            self.assertIsNotNone(panel._open_encoding_window_btn)
-            fired: list[str] = []
-            panel.open_encoding_window_requested.connect(lambda: fired.append("open"))
-
-            panel._open_encoding_window_btn.click()
-
-            self.assertEqual(["open"], fired)
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -241,7 +277,7 @@ class SettingsPanelTests(unittest.TestCase):
             nav_buttons = panel._toolbox.findChildren(QToolButton, "settingsGroupNavButton")
 
             self.assertEqual(len(SettingsPanel.GROUP_SPECS), len(nav_buttons))
-            self.assertEqual(9, len(nav_buttons))
+            self.assertEqual(8, len(nav_buttons))
             self.assertTrue(all(button.minimumHeight() == 76 for button in nav_buttons))
             self.assertTrue(all(button.minimumWidth() == 84 for button in nav_buttons))
             self.assertEqual("Pixel", nav_buttons[0].text())

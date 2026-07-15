@@ -172,7 +172,6 @@ class ModelSerializationTests(unittest.TestCase):
                         quality=100,
                         compression_level=3,
                         chroma_subsampling=ChromaSubsampling.AUTO,
-                        palette_limit=None,
                         ico_sizes=[16, 32, 64, 128, 256],
                         strip_metadata=True,
                     ),
@@ -194,6 +193,10 @@ class ModelSerializationTests(unittest.TestCase):
                 pointer=0,
             ),
         )
+        asset.detected_settings = SettingsState(
+            pixel=PixelSettings(scale_method=ScaleMethod.NEAREST, pixel_snap=True),
+            export=ExportSettings(export_profile=ExportProfile.APP_ASSET, format=ExportFormat.PNG),
+        )
 
         payload = asset.to_dict()
         json.dumps(payload)  # JSON-safe check
@@ -203,6 +206,7 @@ class ModelSerializationTests(unittest.TestCase):
         self.assertIsInstance(restored.dimensions_original, tuple)
         self.assertIsInstance(restored.created_at, datetime)
         self.assertIsInstance(restored.edit_state.queued_heavy_jobs[0].tool, HeavyTool)
+        self.assertEqual(restored.detected_settings.pixel.scale_method, ScaleMethod.NEAREST)
 
     def test_session_state_round_trip(self) -> None:
         session = SessionState(

@@ -120,7 +120,7 @@ def _check_packaging_files(project_root: Path) -> tuple[bool, dict[str, Any]]:
         "onedir_spec": project_root / "spritefactory.spec",
         "onefile_spec": project_root / "spritefactory_onefile.spec",
         "runtime_hook_dir": project_root / "pyinstaller_rthooks",
-        "icon": project_root / "spritefactory.ico",
+        "icon": project_root / "image_engine_app" / "assets" / "icons" / "spritefactory_pro.ico",
         "version_info": project_root / "pyinstaller_version_info.py",
     }
     missing = [k for k, p in paths.items() if not p.exists()]

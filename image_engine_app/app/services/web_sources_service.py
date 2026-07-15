@@ -24,7 +24,6 @@ from image_engine_app.app.web_sources_models import (
     WebIndexLink,
     WebItem,
     coerce_smart_options,
-    coerce_web_item,
 )
 from image_engine_app.engine.ingest.url_ingest import DownloadCancelledError, DownloadGuards, UrlIngestError, validate_url
 from image_engine_app.engine.ingest.web_sources_rules import (
@@ -385,18 +384,17 @@ class WebSourcesService:
                 return False
 
         def _looks_like_cancel_error(exc: Exception) -> bool:
-            return isinstance(exc, DownloadCancelledError)
+            return isinstance(exc, (DownloadCancelledError, WebpageScanCancelledError))
 
         _emit_progress(0, "Preparing downloads...")
 
-        for index, raw_item in enumerate(items, start=1):
+        for index, item in enumerate(items, start=1):
             if _is_cancel_requested():
                 cancelled = True
                 _emit_progress(max(0, index - 1), "Download cancelled by user")
                 break
 
-            item = coerce_web_item(raw_item)
-            if item is None or not item.url.strip():
+            if not isinstance(item, WebItem) or not item.url.strip():
                 _emit_progress(index, f"Skipped invalid item ({index}/{total_items})")
                 continue
 
@@ -404,13 +402,22 @@ class WebSourcesService:
             canonical_url = self.canonicalize_download_url(item.url) or item.url
             source_page = str(item.source_page or item.url or canonical_url).strip()
             name = self.resolve_web_item_name(item.name, item.url)
-            download_url = self.resolve_download_url(
-                item=item,
-                canonical_url=canonical_url,
-                source_page=source_page,
-                opener=opener,
-                cancel_requested=cancel_requested,
-            )
+            try:
+                download_url = self.resolve_download_url(
+                    item=item,
+                    canonical_url=canonical_url,
+                    source_page=source_page,
+                    opener=opener,
+                    cancel_requested=cancel_requested,
+                )
+            except Exception as exc:
+                if _looks_like_cancel_error(exc) or _is_cancel_requested():
+                    cancelled = True
+                    _emit_progress(max(0, index - 1), "Download cancelled by user")
+                    break
+                failed.append(f"{name}: {exc}")
+                _emit_progress(index, f"Failed: {name}")
+                continue
             _emit_progress(index - 1, f"Downloading {index}/{total_items}: {name}")
 
             item_key = dedupe_key(f"{effective_target.value}:{name}:{canonical_url}")

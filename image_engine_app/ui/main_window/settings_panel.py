@@ -32,11 +32,15 @@ from image_engine_app.engine.models import (
     BackgroundRemovalMode,
     ChromaSubsampling,
     ExportFormat,
-    ExportProfile,
     ScaleMethod,
     normalize_background_removal_mode,
 )
 from image_engine_app.engine.analyze.background_scan import BackgroundScanResult, inspect_background_state
+from image_engine_app.engine.process.output_size import (
+    CUSTOM_SIZE,
+    apply_output_size_choice,
+    output_size_choice_for,
+)
 from image_engine_app.ui.common.icons import icon
 from image_engine_app.ui.common.state_bindings import EngineUIState
 from image_engine_app.ui.main_window.settings_group_builders import settings_group_builders
@@ -60,7 +64,6 @@ class _SettingsGroupNavigator(QFrame):
         "Color and Light": "Color",
         "Transparency": "Alpha",
         "GIF Controls": "GIF",
-        "Export Encoding": "Encoding",
     }
     TILE_ICONS = {
         "Pixel": "settings-pixel",
@@ -71,7 +74,6 @@ class _SettingsGroupNavigator(QFrame):
         "Alpha": "settings-alpha",
         "GIF": "settings-gif",
         "Export": "settings-export",
-        "Encoding": "settings-encoding",
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -195,8 +197,6 @@ class _SettingsGroupNavigator(QFrame):
 class SettingsPanel(QScrollArea):
     """Right-docked settings panel shell matching the spec layout."""
 
-    open_encoding_window_requested = Signal()
-
     GROUP_SPECS = [
         _GroupSpec("Pixel and Resolution"),
         _GroupSpec("Color and Light"),
@@ -206,7 +206,6 @@ class SettingsPanel(QScrollArea):
         _GroupSpec("Transparency"),
         _GroupSpec("GIF Controls", requires_gif=True),
         _GroupSpec("Export"),
-        _GroupSpec("Export Encoding"),
     ]
     GROUP_HELP = {
         "Pixel and Resolution": "Real output size, DPI, target width/height, and scale style.",
@@ -217,7 +216,6 @@ class SettingsPanel(QScrollArea):
         "Transparency": "White/black cutout and alpha edge cleanup.",
         "GIF Controls": "Animation timing, palette, and GIF output tuning.",
         "Export": "Final output format, quality, and metadata settings.",
-        "Export Encoding": "Compression, chroma, palette, and icon size tuning.",
     }
 
     _LOCK_THEME = {
@@ -240,11 +238,9 @@ class SettingsPanel(QScrollArea):
         self._background_scan = BackgroundScanResult()
         self._visible_group_count = 0
         self._suspend_setting_events = False
-        self._syncing_resize_dpi = False
-        self._last_resize_percent_for_dpi_sync = 100.0
-        self._last_dpi_for_resize_sync = 72
 
         # Pixel
+        self._output_size: QComboBox | None = None
         self._resize_percent: QDoubleSpinBox | None = None
         self._dpi: QSpinBox | None = None
         self._pixel_snap: QCheckBox | None = None
@@ -286,12 +282,6 @@ class SettingsPanel(QScrollArea):
         self._matte_fix: QDoubleSpinBox | None = None
         self._alpha_threshold: QSpinBox | None = None
 
-        # AI
-        self._upscale_factor: QDoubleSpinBox | None = None
-        self._ai_deblur: QDoubleSpinBox | None = None
-        self._ai_detail_reconstruct: QDoubleSpinBox | None = None
-        self._ai_bg_remove: QDoubleSpinBox | None = None
-
         # GIF
         self._frame_delay: QSpinBox | None = None
         self._gif_dither: QDoubleSpinBox | None = None
@@ -300,18 +290,14 @@ class SettingsPanel(QScrollArea):
         self._gif_frame_optimize: QCheckBox | None = None
 
         # Export
-        self._export_profile: QComboBox | None = None
         self._export_format: QComboBox | None = None
         self._export_quality: QSpinBox | None = None
         self._strip_metadata: QCheckBox | None = None
         self._export_format_hint: QLabel | None = None
         self._export_quality_hint: QLabel | None = None
 
-        # Expert encoding
-        self._open_encoding_window_btn: QPushButton | None = None
         self._compression_level: QSpinBox | None = None
         self._chroma_subsampling: QComboBox | None = None
-        self._palette_limit: QSpinBox | None = None
         self._ico_sizes: QLineEdit | None = None
 
         self._build_ui()
@@ -320,7 +306,7 @@ class SettingsPanel(QScrollArea):
         self._ui_state = ui_state
         ui_state.active_asset_changed.connect(self._on_active_asset_changed)
         ui_state.background_removal_mode_changed.connect(self._on_background_removal_mode_changed)
-        ui_state.export_profile_changed.connect(lambda _value: self._sync_controls_from_asset(ui_state.active_asset))
+        ui_state.export_profile_changed.connect(self._on_export_profile_applied)
         self._on_active_asset_changed(ui_state.active_asset)
 
     def _build_ui(self) -> None:
@@ -348,7 +334,7 @@ class SettingsPanel(QScrollArea):
         reset_current_btn = QPushButton("Reset All", header_card)
         reset_current_btn.setObjectName("settingsResetButton")
         reset_current_btn.setAutoDefault(False)
-        reset_current_btn.setToolTip("Reset only the active asset edits back to the original default state.")
+        reset_current_btn.setToolTip("Restore the controls detected for the active asset when it was imported.")
         reset_current_btn.clicked.connect(self._emit_reset_current_defaults)
         self._reset_current_defaults_btn = reset_current_btn
         title_row.addWidget(reset_current_btn, 0)
@@ -373,24 +359,12 @@ class SettingsPanel(QScrollArea):
             self._group_controls_by_index[idx] = controls_widget
             self._group_lock_labels_by_index[idx] = lock_label
 
-        self._build_hidden_compatibility_controls(container)
-
         layout.addStretch(0)
         self.setWidget(container)
         self.setMinimumWidth(380)
         self._apply_filters()
         self._set_bound_controls_enabled(False)
         self._refresh_header_summary()
-
-    def _build_hidden_compatibility_controls(self, parent: QWidget) -> None:
-        """Build settings that remain supported but are not part of the locked mock shell."""
-
-        hidden = QWidget(parent)
-        hidden.setVisible(False)
-        form = QFormLayout(hidden)
-        builder = settings_group_builders(self).get("AI Enhance")
-        if builder is not None:
-            builder(form, hidden)
 
     def _new_float_spin(
         self,
@@ -506,64 +480,27 @@ class SettingsPanel(QScrollArea):
         if self._ui_state is not None:
             self._ui_state.request_global_reset()
 
-    def _emit_open_encoding_window(self) -> None:
-        self.open_encoding_window_requested.emit()
+    def _on_output_size_changed(self, _index: int) -> None:
+        if self._suspend_setting_events or self._output_size is None or self._ui_state is None:
+            return
+        asset = self._ui_state.active_asset
+        if asset is None:
+            return
+
+        choice_key = str(self._output_size.currentData() or CUSTOM_SIZE)
+        if choice_key == CUSTOM_SIZE:
+            return
+        if not apply_output_size_choice(asset.edit_state.settings.pixel, choice_key):
+            return
+
+        self._sync_controls_from_asset(asset)
+        self._ui_state.request_light_preview()
 
     def _on_resize_percent_changed(self, value: float) -> None:
-        value_f = float(value)
-        self._update_setting("pixel", "resize_percent", value_f)
-
-        if self._suspend_setting_events:
-            self._last_resize_percent_for_dpi_sync = value_f
-            return
-
-        if self._syncing_resize_dpi or self._dpi is None:
-            self._last_resize_percent_for_dpi_sync = value_f
-            return
-
-        previous_resize = max(0.01, float(self._last_resize_percent_for_dpi_sync))
-        current_dpi = int(self._dpi.value())
-        scaled_dpi = int(round(current_dpi * (value_f / previous_resize)))
-        self._last_resize_percent_for_dpi_sync = value_f
-        scaled_dpi = max(1, min(int(self._dpi.maximum()), scaled_dpi))
-        if scaled_dpi == current_dpi:
-            self._last_dpi_for_resize_sync = current_dpi
-            return
-
-        self._syncing_resize_dpi = True
-        try:
-            self._dpi.setValue(scaled_dpi)
-        finally:
-            self._syncing_resize_dpi = False
-        self._last_dpi_for_resize_sync = int(self._dpi.value())
+        self._update_setting("pixel", "resize_percent", float(value))
 
     def _on_dpi_changed(self, value: int) -> None:
-        value_i = int(value)
-        self._update_setting("pixel", "dpi", value_i)
-
-        if self._suspend_setting_events:
-            self._last_dpi_for_resize_sync = value_i
-            return
-
-        if self._syncing_resize_dpi or self._resize_percent is None:
-            self._last_dpi_for_resize_sync = value_i
-            return
-
-        previous_dpi = max(1, int(self._last_dpi_for_resize_sync))
-        current_resize = float(self._resize_percent.value())
-        scaled_resize = current_resize * (value_i / previous_dpi)
-        self._last_dpi_for_resize_sync = value_i
-        scaled_resize = max(float(self._resize_percent.minimum()), min(float(self._resize_percent.maximum()), scaled_resize))
-        if abs(scaled_resize - current_resize) < 0.01:
-            self._last_resize_percent_for_dpi_sync = current_resize
-            return
-
-        self._syncing_resize_dpi = True
-        try:
-            self._resize_percent.setValue(scaled_resize)
-        finally:
-            self._syncing_resize_dpi = False
-        self._last_resize_percent_for_dpi_sync = float(self._resize_percent.value())
+        self._update_setting("pixel", "dpi", int(value))
 
     def _on_active_asset_changed(self, asset: object) -> None:
         if asset is None:
@@ -581,6 +518,7 @@ class SettingsPanel(QScrollArea):
         self._update_export_controls_hint(asset)
         self._refresh_header_summary()
         self._refresh_background_status(asset)
+        self._update_alpha_control_availability(asset)
 
     def _apply_filters(self) -> None:
         visible_count = 0
@@ -640,6 +578,9 @@ class SettingsPanel(QScrollArea):
                 self._export_quality_hint.setText(
                     "Quality control is enabled after you select an asset."
                 )
+            for widget in (self._compression_level, self._chroma_subsampling, self._ico_sizes):
+                if widget is not None:
+                    widget.setEnabled(False)
             return
 
         settings = getattr(getattr(asset, "edit_state", None), "settings", None)
@@ -668,6 +609,12 @@ class SettingsPanel(QScrollArea):
 
         if self._export_quality is not None:
             self._export_quality.setEnabled(lossy)
+        if self._compression_level is not None:
+            self._compression_level.setEnabled(effective_fmt_value == "png")
+        if self._chroma_subsampling is not None:
+            self._chroma_subsampling.setEnabled(effective_fmt_value in {"jpg", "jpeg"})
+        if self._ico_sizes is not None:
+            self._ico_sizes.setEnabled(effective_fmt_value == "ico")
 
         if self._export_quality_hint is not None:
             if lossy:
@@ -692,6 +639,12 @@ class SettingsPanel(QScrollArea):
         self._suspend_setting_events = True
         try:
             # Pixel
+            if self._output_size is not None:
+                choice_key = output_size_choice_for(settings.pixel)
+                for idx in range(self._output_size.count()):
+                    if self._output_size.itemData(idx) == choice_key:
+                        self._output_size.setCurrentIndex(idx)
+                        break
             if self._resize_percent is not None:
                 self._resize_percent.setValue(float(getattr(settings.pixel, "resize_percent", 100.0)))
             if self._dpi is not None:
@@ -771,19 +724,9 @@ class SettingsPanel(QScrollArea):
             if self._alpha_threshold is not None:
                 self._alpha_threshold.setValue(int(getattr(settings.alpha, "alpha_threshold", 0)))
 
-            # AI
-            if self._upscale_factor is not None:
-                self._upscale_factor.setValue(float(getattr(settings.ai, "upscale_factor", 1.0)))
-            if self._ai_deblur is not None:
-                self._ai_deblur.setValue(float(getattr(settings.ai, "deblur_strength", 0.0)))
-            if self._ai_detail_reconstruct is not None:
-                self._ai_detail_reconstruct.setValue(float(getattr(settings.ai, "detail_reconstruct", 0.0)))
-            if self._ai_bg_remove is not None:
-                self._ai_bg_remove.setValue(float(getattr(settings.ai, "bg_remove_strength", 0.0)))
-
             # GIF
             if self._frame_delay is not None:
-                self._frame_delay.setValue(int(getattr(settings.gif, "frame_delay_ms", 100)))
+                self._frame_delay.setValue(int(getattr(settings.gif, "frame_delay_ms", 0)))
             if self._gif_dither is not None:
                 self._gif_dither.setValue(float(getattr(settings.gif, "dither_strength", 0.0)))
             if self._gif_loop is not None:
@@ -794,12 +737,6 @@ class SettingsPanel(QScrollArea):
                 self._gif_frame_optimize.setChecked(bool(getattr(settings.gif, "frame_optimize", True)))
 
             # Export + expert
-            if self._export_profile is not None:
-                current_profile = getattr(settings.export, "export_profile", ExportProfile.WEB)
-                for idx in range(self._export_profile.count()):
-                    if self._export_profile.itemData(idx) == current_profile:
-                        self._export_profile.setCurrentIndex(idx)
-                        break
             if self._export_format is not None:
                 current_format = getattr(settings.export, "format", ExportFormat.AUTO)
                 for idx in range(self._export_format.count()):
@@ -818,23 +755,17 @@ class SettingsPanel(QScrollArea):
                     if self._chroma_subsampling.itemData(idx) == current:
                         self._chroma_subsampling.setCurrentIndex(idx)
                         break
-            if self._palette_limit is not None:
-                palette_value = getattr(settings.export, "palette_limit", None)
-                self._palette_limit.setValue(int(palette_value) if palette_value is not None else 0)
             if self._ico_sizes is not None:
                 sizes = getattr(settings.export, "ico_sizes", None)
                 if not isinstance(sizes, list) or not sizes:
                     sizes = [16, 32, 48, 64, 128, 256]
                 self._ico_sizes.setText(", ".join(str(max(1, int(value))) for value in sizes))
-            if self._resize_percent is not None:
-                self._last_resize_percent_for_dpi_sync = float(self._resize_percent.value())
-            if self._dpi is not None:
-                self._last_dpi_for_resize_sync = int(self._dpi.value())
         finally:
             self._suspend_setting_events = False
 
     def _set_bound_controls_enabled(self, enabled: bool) -> None:
         for widget in (
+            self._output_size,
             self._resize_percent,
             self._dpi,
             self._pixel_snap,
@@ -863,24 +794,17 @@ class SettingsPanel(QScrollArea):
             self._alpha_smooth,
             self._matte_fix,
             self._alpha_threshold,
-            self._upscale_factor,
-            self._ai_deblur,
-            self._ai_detail_reconstruct,
-            self._ai_bg_remove,
             self._frame_delay,
             self._gif_dither,
             self._gif_loop,
             self._gif_palette_size,
             self._gif_frame_optimize,
-            self._export_profile,
             self._export_format,
             self._export_quality,
             self._strip_metadata,
             self._compression_level,
             self._chroma_subsampling,
-            self._palette_limit,
             self._ico_sizes,
-            self._open_encoding_window_btn,
         ):
             if widget is not None:
                 widget.setEnabled(bool(enabled))
@@ -907,8 +831,24 @@ class SettingsPanel(QScrollArea):
             return
         setattr(group, field_name, value)
 
-        if bool(getattr(asset.edit_state, "auto_apply_light", False)):
+        if group_name == "pixel" and field_name in {"resize_percent", "width", "height"}:
+            self._sync_output_size_from_pixel(group)
+
+        if group_name != "export":
             self._ui_state.request_light_preview()
+
+    def _sync_output_size_from_pixel(self, pixel_settings: object) -> None:
+        if self._output_size is None:
+            return
+        choice_key = output_size_choice_for(pixel_settings)
+        self._output_size.blockSignals(True)
+        try:
+            for idx in range(self._output_size.count()):
+                if self._output_size.itemData(idx) == choice_key:
+                    self._output_size.setCurrentIndex(idx)
+                    break
+        finally:
+            self._output_size.blockSignals(False)
 
     def _on_white_bg_mode_changed(self, _index: int) -> None:
         if self._suspend_setting_events or self._white_bg_mode is None:
@@ -923,8 +863,31 @@ class SettingsPanel(QScrollArea):
     def _on_background_removal_mode_changed(self, _mode_value: str) -> None:
         if self._ui_state is None:
             return
-        self._sync_controls_from_asset(self._ui_state.active_asset)
-        self._refresh_background_status(self._ui_state.active_asset)
+        asset = self._ui_state.active_asset
+        self._sync_controls_from_asset(asset)
+        self._update_export_controls_hint(asset)
+        self._refresh_background_status(asset)
+        self._update_alpha_control_availability(asset)
+
+    def _update_alpha_control_availability(self, asset: object) -> None:
+        has_asset = asset is not None and getattr(asset, "edit_state", None) is not None
+        settings = getattr(getattr(asset, "edit_state", None), "settings", None)
+        mode = BackgroundRemovalMode.OFF
+        if settings is not None:
+            mode = normalize_background_removal_mode(
+                getattr(settings.alpha, "background_removal_mode", None),
+                remove_white_bg=bool(getattr(settings.alpha, "remove_white_bg", False)),
+            )
+        alpha_available = has_asset and (self._asset_has_alpha or mode is not BackgroundRemovalMode.OFF)
+        for widget in (
+            self._alpha_smooth,
+            self._matte_fix,
+            self._alpha_threshold,
+            self._edge_grow_shrink,
+            self._edge_feather,
+        ):
+            if widget is not None:
+                widget.setEnabled(alpha_available)
 
     def _on_chroma_subsampling_changed(self, _index: int) -> None:
         if self._chroma_subsampling is None:
@@ -933,13 +896,12 @@ class SettingsPanel(QScrollArea):
         if isinstance(value, ChromaSubsampling):
             self._update_setting("export", "chroma_subsampling", value)
 
-    def _on_export_profile_changed(self, _index: int) -> None:
-        if self._suspend_setting_events or self._export_profile is None or self._ui_state is None:
+    def _on_export_profile_applied(self, _profile_value: str) -> None:
+        if self._ui_state is None:
             return
-        value = self._export_profile.currentData()
-        if isinstance(value, ExportProfile):
-            self._ui_state.set_export_profile(value)
-            self._update_export_controls_hint(self._ui_state.active_asset)
+        asset = self._ui_state.active_asset
+        self._sync_controls_from_asset(asset)
+        self._update_export_controls_hint(asset)
 
     def _on_export_format_changed(self, _index: int) -> None:
         if self._export_format is None:
@@ -949,9 +911,6 @@ class SettingsPanel(QScrollArea):
             self._update_setting("export", "format", value)
             if self._ui_state is not None:
                 self._update_export_controls_hint(self._ui_state.active_asset)
-
-    def _on_palette_limit_changed(self, value: int) -> None:
-        self._update_setting("export", "palette_limit", (None if int(value) <= 0 else int(value)))
 
     def _on_ico_sizes_changed(self) -> None:
         if self._ico_sizes is None:

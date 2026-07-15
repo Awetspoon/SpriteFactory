@@ -10,11 +10,10 @@ import unittest
 
 
 try:
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QLabel
 except Exception:  # pragma: no cover - optional dependency in some environments
     QApplication = None  # type: ignore[assignment]
-    Qt = None  # type: ignore[assignment]
+    QLabel = None  # type: ignore[assignment]
 
 from image_engine_app.engine.models import AssetRecord, BackgroundRemovalMode  # noqa: E402
 from image_engine_app.ui.common.state_bindings import EngineUIState  # noqa: E402
@@ -35,28 +34,28 @@ class ControlStripWidgetTests(unittest.TestCase):
         if getattr(cls, "_owns_app", False) and getattr(cls, "_app", None) is not None:
             cls._app.quit()
 
-    def test_apply_button_text_tracks_heavy_queue_state(self) -> None:
+    def test_run_button_tracks_heavy_queue_state(self) -> None:
         ui_state = EngineUIState()
         strip = ControlStrip()
         strip.bind_state(ui_state)
 
         try:
-            self.assertFalse(strip._apply_button.isEnabled())
+            self.assertFalse(strip._run_button.isEnabled())
             self.assertIn("Select an asset", strip._header_summary.text())
 
             asset = AssetRecord(id="asset-1", original_name="sprite.png")
             ui_state.set_active_asset(asset)
-            self.assertTrue(strip._apply_button.isEnabled())
-            self.assertEqual("Apply", strip._apply_button.text())
+            self.assertTrue(strip._run_button.isEnabled())
+            self.assertEqual("Refresh Final", strip._run_button.text())
             self.assertEqual("Ready", strip._queue_badge.text())
 
             ui_state.set_heavy_queue_counts(queued_count=2, running_count=0)
-            self.assertEqual("Run 2 Heavy", strip._apply_button.text())
+            self.assertEqual("Run 2 Heavy", strip._run_button.text())
             self.assertIn("queued", strip._queue_badge.text().lower())
         finally:
             strip.close()
 
-    def test_preview_button_emits_light_preview_request(self) -> None:
+    def test_run_button_emits_light_preview_request_without_heavy_queue(self) -> None:
         ui_state = EngineUIState()
         strip = ControlStrip()
         strip.bind_state(ui_state)
@@ -67,7 +66,7 @@ class ControlStripWidgetTests(unittest.TestCase):
         ui_state.light_preview_requested.connect(lambda: calls.append("preview"))
 
         try:
-            strip._preview_button.click()
+            strip._run_button.click()
             self.assertEqual(["preview"], calls)
         finally:
             strip.close()
@@ -101,8 +100,7 @@ class ControlStripWidgetTests(unittest.TestCase):
         try:
             self.assertEqual("controlStripMenuAction", strip._background_button.objectName())
             self.assertEqual("controlStripMenuAction", strip._options_button.objectName())
-            self.assertEqual("Link", strip._sync_button.text())
-            self.assertEqual("Auto", strip._auto_apply_button.text())
+            self.assertEqual("FINAL", strip._actions_group.findChild(QLabel, "controlStripSectionLabel").text())
             self.assertGreaterEqual(strip._background_button.minimumWidth(), 84)
             self.assertGreaterEqual(strip._options_button.minimumWidth(), 72)
         finally:
@@ -146,7 +144,7 @@ class ControlStripWidgetTests(unittest.TestCase):
         finally:
             strip.close()
 
-    def test_target_badge_uses_centered_header_badge_layout(self) -> None:
+    def test_header_uses_preset_background_and_queue_controls(self) -> None:
         ui_state = EngineUIState()
         strip = ControlStrip()
         strip.bind_state(ui_state)
@@ -154,13 +152,13 @@ class ControlStripWidgetTests(unittest.TestCase):
         ui_state.set_active_asset(asset)
 
         try:
-            self.assertGreaterEqual(strip._target_badge.minimumHeight(), 24)
-            self.assertEqual(int(strip._target_badge.alignment()), int(Qt.AlignmentFlag.AlignCenter))
-            self.assertIn("Target:", strip._target_badge.text())
+            self.assertEqual(strip._preset_button.size(), strip._background_button.size())
+            self.assertEqual(strip._background_button.height(), strip._queue_badge.height())
+            self.assertIn("Current is the source", strip._header_summary.text())
         finally:
             strip.close()
 
-    def test_background_mode_change_requests_preview_even_when_auto_preview_is_off(self) -> None:
+    def test_background_mode_change_always_requests_final_refresh(self) -> None:
         ui_state = EngineUIState()
         strip = ControlStrip()
         strip.bind_state(ui_state)

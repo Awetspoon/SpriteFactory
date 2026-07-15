@@ -19,6 +19,15 @@ class QueueItemStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class BatchEditSource(str, Enum):
+    """Exactly one source of edit settings for a batch run."""
+
+    KEEP_EACH = "keep_each"
+    CHOSEN_PRESET = "chosen_preset"
+    COPY_ACTIVE = "copy_active"
+    SMART_MATCH = "smart_match"
+
+
 @dataclass
 class QueueItem(SerializableDataclass):
     """Batch queue item from the v1.0.1 schema."""

@@ -1,17 +1,28 @@
-"""Web Sources coordinator regression tests."""
+"""Web Sources coordinator contract tests."""
 
 from __future__ import annotations
 
-from pathlib import Path
-import sys
 import unittest
 from unittest.mock import patch
 
-
-from image_engine_app.app.web_sources_models import Confidence, DownloadReport, ScanResults, WebIndexLink, WebItem  # noqa: E402
-from image_engine_app.engine.models import AssetRecord, SourceType  # noqa: E402
-from image_engine_app.ui.main_window import web_sources_coordinator as coordinator_module  # noqa: E402
-from image_engine_app.ui.main_window.web_sources_coordinator import WebSourcesCoordinator  # noqa: E402
+from image_engine_app.app.web_sources_models import (
+    Confidence,
+    DownloadReport,
+    FoundFilesStore,
+    ImportTarget,
+    ScanOrigin,
+    ScanResults,
+    SmartOptions,
+    WebDiagnosticsRequest,
+    WebDownloadRequest,
+    WebIndexLink,
+    WebItem,
+    WebLinkDiscoveryRequest,
+    WebScanRequest,
+)
+from image_engine_app.engine.models import AssetRecord, SourceType
+from image_engine_app.ui.main_window import web_sources_coordinator as coordinator_module
+from image_engine_app.ui.main_window.web_sources_coordinator import WebSourcesCoordinator
 
 
 class _FakeSignal:
@@ -22,18 +33,14 @@ class _FakeSignal:
         self._callbacks.append(callback)
 
     def disconnect(self, callback) -> None:  # noqa: ANN001
-        self._callbacks = [cb for cb in self._callbacks if cb is not callback]
-
-    def emit(self) -> None:
-        for callback in tuple(self._callbacks):
-            callback()
+        self._callbacks = [entry for entry in self._callbacks if entry is not callback]
 
 
 class _FakeProgressDialog:
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         _ = (args, kwargs)
         self.canceled = _FakeSignal()
-        self._max = 1
+        self._maximum = 1
         self._value = 0
 
     def setWindowTitle(self, _title: str) -> None:
@@ -42,7 +49,7 @@ class _FakeProgressDialog:
     def setWindowModality(self, _modality) -> None:  # noqa: ANN001
         return
 
-    def setMinimumDuration(self, _ms: int) -> None:
+    def setMinimumDuration(self, _value: int) -> None:
         return
 
     def setAutoClose(self, _enabled: bool) -> None:
@@ -54,17 +61,17 @@ class _FakeProgressDialog:
     def setLabelText(self, _text: str) -> None:
         return
 
+    def setMaximum(self, value: int) -> None:
+        self._maximum = int(value)
+
+    def maximum(self) -> int:
+        return self._maximum
+
     def setValue(self, value: int) -> None:
         self._value = int(value)
 
     def value(self) -> int:
         return self._value
-
-    def setMaximum(self, value: int) -> None:
-        self._max = int(value)
-
-    def maximum(self) -> int:
-        return self._max
 
     def show(self) -> None:
         return
@@ -75,10 +82,6 @@ class _FakeProgressDialog:
     def deleteLater(self) -> None:
         return
 
-    def close(self) -> None:
-        # Backward-compatible noop for older coordinator behavior.
-        return
-
 
 class _FakeApp:
     @staticmethod
@@ -87,27 +90,32 @@ class _FakeApp:
 
 
 class _FakePanel:
+    PAGE_SCAN_CAP = 100
+
     def __init__(self) -> None:
-        self.LINKED_PAGE_SCAN_CAP = 100
         self.status_messages: list[str] = []
-        self.results: ScanResults | None = None
+        self._store = FoundFilesStore()
         self.index_links: tuple[WebIndexLink, ...] = ()
         self.sources: list[dict] = []
-        self.confirm_large_scan_result = True
-        self.confirm_large_scan_calls: list[tuple[int, int]] = []
+        self.smart = SmartOptions()
+        self.confirm_result = True
+        self.confirm_calls: list[tuple[int, int]] = []
 
-    def set_status(self, msg: str) -> None:
-        self.status_messages.append(str(msg))
+    def set_status(self, message: str) -> None:
+        self.status_messages.append(str(message))
 
-    def set_results(self, results: ScanResults) -> None:
-        self.results = results
+    def add_results(self, results: ScanResults):  # noqa: ANN201
+        return self._store.add(results)
 
-    def set_index_links(self, links: tuple[WebIndexLink, ...]) -> None:
+    def found_items(self) -> tuple[WebItem, ...]:
+        return self._store.items
+
+    def set_index_links(self, links) -> None:  # noqa: ANN001
         self.index_links = tuple(links)
 
-    def confirm_large_linked_page_scan(self, page_count: int, *, cap: int | None = None) -> bool:
-        self.confirm_large_scan_calls.append((int(page_count), int(cap or 0)))
-        return bool(self.confirm_large_scan_result)
+    def confirm_large_page_scan(self, count: int, *, cap: int | None = None) -> bool:
+        self.confirm_calls.append((int(count), int(cap or 0)))
+        return self.confirm_result
 
     def set_sources(
         self,
@@ -119,58 +127,31 @@ class _FakePanel:
         _ = (selected_website_id, selected_area_id)
         self.sources = list(websites)
 
-    def selected_source_ids(self) -> tuple[str | None, str | None]:
-        return None, None
+    def set_smart_options(self, smart: SmartOptions) -> None:
+        self.smart = smart
 
-    def smart_options(self):  # noqa: ANN001
-        raise AssertionError("smart_options should not be called in this test")
+    def smart_options(self) -> SmartOptions:
+        return self.smart
 
     def sources_registry(self) -> list[dict]:
         return list(self.sources)
+
+    def selected_source_ids(self) -> tuple[str | None, str | None]:
+        return None, None
 
 
 class _FakeController:
     app_paths = None
 
     def __init__(self) -> None:
-        self.scanned_page_urls: list[str] = []
+        self.scanned_urls: list[str] = []
+        self.discovery_url = ""
 
     def load_web_sources_registry(self, registry=None):  # noqa: ANN001
-        if registry is None:
-            return []
-        if isinstance(registry, list):
-            return list(registry)
-        return []
+        return list(registry) if isinstance(registry, list) else []
 
-    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
-        return ScanResults(
-            items=(
-                WebItem(
-                    url="https://cdn.example.com/a.png",
-                    name="a.png",
-                    ext=".png",
-                    confidence=Confidence.DIRECT,
-                ),
-            ),
-            filtered_count=0,
-        )
-
-    def discover_web_source_index_links(self, *_args, **_kwargs) -> tuple[WebIndexLink, ...]:
-        return (
-            WebIndexLink(
-                label="HOME Sprites: Gen 1",
-                url="https://example.com/home-gen-1",
-                source_page="https://example.com/index",
-            ),
-            WebIndexLink(
-                label="Animations",
-                url="https://example.com/animations",
-                source_page="https://example.com/index",
-            ),
-        )
-
-    def scan_web_source_pages(self, page_urls: list[str], *_args, **_kwargs) -> ScanResults:
-        self.scanned_page_urls = list(page_urls)
+    def scan_web_source_pages(self, urls: list[str], **_kwargs) -> ScanResults:
+        self.scanned_urls = list(urls)
         return ScanResults(
             items=tuple(
                 WebItem(
@@ -180,9 +161,15 @@ class _FakeController:
                     confidence=Confidence.DIRECT,
                     source_page=url,
                 )
-                for index, url in enumerate(page_urls, start=1)
-            ),
-            filtered_count=0,
+                for index, url in enumerate(urls, start=1)
+            )
+        )
+
+    def discover_web_source_index_links(self, url: str, **_kwargs) -> tuple[WebIndexLink, ...]:
+        self.discovery_url = url
+        return (
+            WebIndexLink("Page One", f"{url.rstrip('/')}/one", source_page=url),
+            WebIndexLink("Page Two", f"{url.rstrip('/')}/two", source_page=url),
         )
 
     def download_web_sources_items(self, *_args, **_kwargs) -> DownloadReport:
@@ -197,484 +184,238 @@ class _FakeController:
             skipped=(),
             failed=(),
             assets=(asset,),
-            cancelled=False,
         )
 
 
-class _ManyLinksController(_FakeController):
-    def discover_web_source_index_links(self, *_args, **_kwargs) -> tuple[WebIndexLink, ...]:
-        return tuple(
-            WebIndexLink(
-                label=f"Page {index}",
-                url=f"https://example.com/page-{index}",
-                source_page="https://example.com/index",
-            )
-            for index in range(205)
+class _PartialFailureController(_FakeController):
+    def scan_web_source_pages(self, urls: list[str], **_kwargs) -> ScanResults:
+        self.scanned_urls = list(urls)
+        return ScanResults(
+            items=(
+                WebItem(
+                    url="https://cdn.example.com/good.png",
+                    name="good.png",
+                    ext=".png",
+                    confidence=Confidence.DIRECT,
+                ),
+            ),
+            failed_pages=(f"{urls[-1]}: HTTP Error 502: Bad Gateway",),
         )
 
 
-class _Win10013Controller:
-    app_paths = None
-
-    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
-        raise RuntimeError("<urlopen error [WinError 10013] blocked>")
-
-
-class _Http403Controller:
-    app_paths = None
-
-    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
+class _HardFailureController(_FakeController):
+    def scan_web_source_pages(self, _urls: list[str], **_kwargs) -> ScanResults:
         raise RuntimeError("HTTP Error 403: Forbidden")
 
 
-class _Http502Controller:
-    app_paths = None
-
-    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
-        raise RuntimeError("HTTP Error 502: Bad Gateway")
-
-
-class _TimeoutController:
-    app_paths = None
-
-    def scan_web_sources_area(self, *_args, **_kwargs) -> ScanResults:
-        raise TimeoutError("timed out")
-
-
-class _MalformedAssetsController(_FakeController):
+class _MalformedDownloadController(_FakeController):
     def download_web_sources_items(self, *_args, **_kwargs) -> DownloadReport:
         return DownloadReport(
             downloaded=("a.png",),
             skipped=(),
             failed=(),
-            assets=("not-an-asset",),  # type: ignore[arg-type]
-            cancelled=False,
+            assets=("invalid",),  # type: ignore[arg-type]
         )
 
 
 class _FakeWindow:
-    def __init__(self, controller: object | None = None) -> None:
-        self.controller = controller if controller is not None else _FakeController()
+    def __init__(self, controller=None) -> None:  # noqa: ANN001
+        self.controller = controller or _FakeController()
         self.web_sources_panel = _FakePanel()
         self.status_updates: list[str] = []
         self.register_calls: list[tuple[list[AssetRecord], bool]] = []
 
-    def _status(self, msg: str) -> None:
-        self.status_updates.append(str(msg))
+    def _status(self, message: str) -> None:
+        self.status_updates.append(str(message))
 
     def _register_assets(self, assets: list[AssetRecord], *, set_active: bool) -> None:
         self.register_calls.append((list(assets), bool(set_active)))
 
 
-class WebSourcesCoordinatorRegressionTests(unittest.TestCase):
-    def test_scan_not_marked_cancelled_when_progress_close_emits_canceled_signal(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_scan_requested(
-                {
-                    "area_url": "https://example.com/gallery",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertIsNotNone(window.web_sources_panel.results)
-        self.assertTrue(any("scan complete" in msg.lower() for msg in window.status_updates))
-        self.assertFalse(any("scan cancelled" in msg.lower() for msg in window.status_updates))
-
-    def test_index_scan_sets_discovered_links(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_index_links_requested(
-                {
-                    "index_url": "https://example.com/index",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertEqual(2, len(window.web_sources_panel.index_links))
-        self.assertTrue(any("index scan complete" in msg.lower() for msg in window.status_updates))
-
-    def test_multi_scan_sets_merged_results(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_multi_scan_requested(
-                {
-                    "pages": [
-                        {
-                            "label": "HOME Sprites: Gen 1",
-                            "url": "https://example.com/home-gen-1",
-                            "source_page": "https://example.com/index",
-                        },
-                        {
-                            "label": "Animations",
-                            "url": "https://example.com/animations",
-                            "source_page": "https://example.com/index",
-                        },
-                    ],
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertIsNotNone(window.web_sources_panel.results)
-        assert window.web_sources_panel.results is not None
-        self.assertEqual(2, len(window.web_sources_panel.results.items))
-        self.assertTrue(any("multi-page scan complete" in msg.lower() for msg in window.status_updates))
-
-    def test_index_scan_all_discovers_links_and_scans_every_page(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_index_scan_all_requested(
-                {
-                    "index_url": "https://example.com/index",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertEqual(2, len(window.web_sources_panel.index_links))
-        self.assertIsNotNone(window.web_sources_panel.results)
-        assert window.web_sources_panel.results is not None
-        self.assertEqual(2, len(window.web_sources_panel.results.items))
-        self.assertTrue(any("linked-page scan complete" in msg.lower() for msg in window.status_updates))
-
-    def test_index_scan_all_warns_and_caps_large_link_sets(self) -> None:
-        controller = _ManyLinksController()
-        window = _FakeWindow(controller=controller)
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_index_scan_all_requested(
-                {
-                    "index_url": "https://example.com/index",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertEqual([(205, 100)], window.web_sources_panel.confirm_large_scan_calls)
-        self.assertEqual(100, len(controller.scanned_page_urls))
-        self.assertEqual("https://example.com/page-0", controller.scanned_page_urls[0])
-        self.assertEqual("https://example.com/page-99", controller.scanned_page_urls[-1])
-
-    def test_index_scan_all_can_be_cancelled_after_large_link_warning(self) -> None:
-        controller = _ManyLinksController()
-        window = _FakeWindow(controller=controller)
-        window.web_sources_panel.confirm_large_scan_result = False
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_index_scan_all_requested(
-                {
-                    "index_url": "https://example.com/index",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertEqual([(205, 100)], window.web_sources_panel.confirm_large_scan_calls)
-        self.assertEqual([], controller.scanned_page_urls)
-        self.assertTrue(any("cancelled before starting" in msg.lower() for msg in window.status_updates))
-
-    def test_scan_winerror_10013_maps_to_friendly_message(self) -> None:
-        window = _FakeWindow(controller=_Win10013Controller())
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_scan_requested(
-                {
-                    "area_url": "https://example.com/gallery",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertTrue(window.web_sources_panel.status_messages)
-        latest = window.web_sources_panel.status_messages[-1]
-        self.assertIn("Scan failed:", latest)
-        self.assertIn("Windows blocked network access (WinError 10013)", latest)
-
-    def test_scan_http_403_maps_to_friendly_message(self) -> None:
-        window = _FakeWindow(controller=_Http403Controller())
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_scan_requested(
-                {
-                    "area_url": "https://example.com/gallery",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertTrue(window.web_sources_panel.status_messages)
-        latest = window.web_sources_panel.status_messages[-1]
-        self.assertIn("Scan failed:", latest)
-        self.assertIn("HTTP 403 (Forbidden)", latest)
-
-    def test_scan_http_502_maps_to_server_failure_message(self) -> None:
-        window = _FakeWindow(controller=_Http502Controller())
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_scan_requested(
-                {
-                    "area_url": "https://example.com/gallery",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertIsNotNone(window.web_sources_panel.results)
-        assert window.web_sources_panel.results is not None
-        self.assertEqual((), window.web_sources_panel.results.items)
-        self.assertEqual(1, len(window.web_sources_panel.results.failed_pages))
-        self.assertIn("https://example.com/gallery", window.web_sources_panel.results.failed_pages[0])
-        self.assertIn("HTTP 502 (Bad Gateway)", window.web_sources_panel.results.failed_pages[0])
-        self.assertIn("website/server failed", window.web_sources_panel.results.failed_pages[0])
-        self.assertIn("failed page", window.status_updates[-1])
-
-    def test_single_page_timeout_sets_failed_page_results_instead_of_hard_fail(self) -> None:
-        window = _FakeWindow(controller=_TimeoutController())
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_scan_requested(
-                {
-                    "area_url": "https://example.com/gallery",
-                    "website_id": None,
-                    "area_id": None,
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertIsNotNone(window.web_sources_panel.results)
-        assert window.web_sources_panel.results is not None
-        self.assertEqual((), window.web_sources_panel.results.items)
-        self.assertEqual(1, len(window.web_sources_panel.results.failed_pages))
-        self.assertIn("https://example.com/gallery", window.web_sources_panel.results.failed_pages[0])
-        self.assertIn("failed page", window.status_updates[-1])
-
-    def test_download_registers_assets_into_workspace(self) -> None:
-        window = _FakeWindow(controller=_FakeController())
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_download_requested(
-                {
-                    "items": [
-                        {
-                            "url": "https://cdn.example.com/a.png",
-                            "name": "a.png",
-                            "ext": ".png",
-                            "confidence": "direct",
-                        }
-                    ],
-                    "target": "normal",
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertEqual(1, len(window.register_calls))
-        assets, set_active = window.register_calls[0]
-        self.assertTrue(set_active)
-        self.assertEqual(1, len(assets))
-        self.assertIn("workspace loaded 1", window.web_sources_panel.status_messages[-1].lower())
-
-    def test_download_with_malformed_assets_does_not_crash(self) -> None:
-        window = _FakeWindow(controller=_MalformedAssetsController())
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog), patch.object(
-            coordinator_module,
-            "QApplication",
-            _FakeApp,
-        ):
-            coordinator.on_download_requested(
-                {
-                    "items": [
-                        {
-                            "url": "https://cdn.example.com/a.png",
-                            "name": "a.png",
-                            "ext": ".png",
-                            "confidence": "direct",
-                        }
-                    ],
-                    "target": "normal",
-                    "smart": {
-                        "show_likely": False,
-                        "auto_sort": False,
-                        "skip_duplicates": True,
-                        "allow_zip": True,
-                    },
-                }
-            )
-
-        self.assertEqual([], window.register_calls)
-        self.assertIn("workspace loaded 0", window.web_sources_panel.status_messages[-1].lower())
-
-    def test_network_diagnostics_updates_status(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(
-            WebSourcesCoordinator,
-            "_diagnostics_summary_for_url",
-            return_value="Network diagnostics OK: DNS + TCP + HTTP 200 for example.com:443",
-        ):
-            coordinator.on_network_diagnostics_requested({"area_url": "https://example.com/sprites"})
-
-        self.assertTrue(window.web_sources_panel.status_messages)
-        self.assertIn("Network diagnostics OK", window.web_sources_panel.status_messages[-1])
-        self.assertTrue(window.status_updates)
-        self.assertIn("Network diagnostics OK", window.status_updates[-1])
-
-    def test_network_diagnostics_error_is_mapped(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        with patch.object(
-            WebSourcesCoordinator,
-            "_diagnostics_summary_for_url",
-            side_effect=RuntimeError("<urlopen error [WinError 10013] blocked>"),
-        ):
-            coordinator.on_network_diagnostics_requested({"area_url": "https://example.com/sprites"})
-
-        self.assertTrue(window.web_sources_panel.status_messages)
-        self.assertIn("Network diagnostics failed", window.web_sources_panel.status_messages[-1])
-        self.assertIn("WinError 10013", window.web_sources_panel.status_messages[-1])
-
-    def test_registry_changed_allows_empty_list_and_clears_sources(self) -> None:
-        window = _FakeWindow()
-        coordinator = WebSourcesCoordinator(window)
-
-        coordinator.on_registry_changed([])
-
-        self.assertEqual([], window.web_sources_panel.sources)
-        self.assertFalse(
-            any("empty after validation" in msg.lower() for msg in window.web_sources_panel.status_messages)
+class WebSourcesCoordinatorTests(unittest.TestCase):
+    def _progress_patches(self):  # noqa: ANN201
+        return (
+            patch.object(coordinator_module, "QProgressDialog", _FakeProgressDialog),
+            patch.object(coordinator_module, "QApplication", _FakeApp),
         )
+
+    @staticmethod
+    def _scan_request(*urls: str) -> WebScanRequest:
+        return WebScanRequest(
+            urls=tuple(urls),
+            smart=SmartOptions(show_likely=True),
+            origin=ScanOrigin.ENTERED,
+        )
+
+    def test_all_page_sources_use_the_one_scan_call_and_accumulate(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_scan_requested(self._scan_request("https://example.com/one"))
+            coordinator.on_scan_requested(
+                WebScanRequest(
+                    urls=("https://example.com/two", "https://example.com/three"),
+                    origin=ScanOrigin.SAVED,
+                )
+            )
+
+        self.assertEqual(
+            ["https://example.com/two", "https://example.com/three"],
+            window.controller.scanned_urls,
+        )
+        self.assertEqual(2, len(window.web_sources_panel.found_items()))
+        self.assertTrue(any("scan complete" in message.lower() for message in window.status_updates))
+
+    def test_scan_dedupes_request_urls_before_service_call(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_scan_requested(
+                self._scan_request(
+                    "https://example.com/page",
+                    "https://example.com/page",
+                )
+            )
+        self.assertEqual(["https://example.com/page"], window.controller.scanned_urls)
+
+    def test_large_scan_uses_one_central_warning_and_cap(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        urls = tuple(f"https://example.com/{index}" for index in range(150))
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_scan_requested(self._scan_request(*urls))
+        self.assertEqual([(150, 100)], window.web_sources_panel.confirm_calls)
+        self.assertEqual(100, len(window.controller.scanned_urls))
+
+    def test_large_scan_can_be_cancelled_before_network_call(self) -> None:
+        window = _FakeWindow()
+        window.web_sources_panel.confirm_result = False
+        coordinator = WebSourcesCoordinator(window)
+        coordinator.on_scan_requested(
+            self._scan_request(*(f"https://example.com/{index}" for index in range(101)))
+        )
+        self.assertEqual([], window.controller.scanned_urls)
+        self.assertIn("cancelled before starting", window.web_sources_panel.status_messages[-1])
+
+    def test_partial_failures_keep_successes_and_receive_plain_error_text(self) -> None:
+        window = _FakeWindow(_PartialFailureController())
+        coordinator = WebSourcesCoordinator(window)
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_scan_requested(
+                self._scan_request("https://example.com/good", "https://example.com/bad")
+            )
+        self.assertEqual(1, len(window.web_sources_panel.found_items()))
+        failure = window.web_sources_panel._store.results.failed_pages[0]
+        self.assertIn("HTTP 502", failure)
+        self.assertIn("scan fewer pages", failure)
+
+    def test_hard_scan_failure_is_mapped_without_clearing_existing_results(self) -> None:
+        window = _FakeWindow(_HardFailureController())
+        window.web_sources_panel._store.add(
+            ScanResults(
+                items=(
+                    WebItem(
+                        url="https://cdn.example.com/existing.png",
+                        name="existing.png",
+                        ext=".png",
+                        confidence=Confidence.DIRECT,
+                    ),
+                )
+            )
+        )
+        coordinator = WebSourcesCoordinator(window)
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_scan_requested(self._scan_request("https://example.com/blocked"))
+        self.assertEqual(1, len(window.web_sources_panel.found_items()))
+        self.assertIn("HTTP 403", window.web_sources_panel.status_messages[-1])
+
+    def test_discovery_has_its_own_call_and_only_updates_linked_pages(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_discover_links_requested(
+                WebLinkDiscoveryRequest(url="https://example.com/index")
+            )
+        self.assertEqual("https://example.com/index", window.controller.discovery_url)
+        self.assertEqual(2, len(window.web_sources_panel.index_links))
+        self.assertEqual(0, len(window.web_sources_panel.found_items()))
+
+    def test_download_registers_only_valid_assets_into_workspace(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        item = WebItem(
+            url="https://cdn.example.com/a.png",
+            name="a.png",
+            ext=".png",
+            confidence=Confidence.DIRECT,
+        )
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_download_requested(
+                WebDownloadRequest(items=(item,), target=ImportTarget.NORMAL)
+            )
+        self.assertEqual(1, len(window.register_calls))
+        self.assertEqual("a.png", window.register_calls[0][0][0].original_name)
+
+    def test_download_ignores_malformed_report_assets_without_crashing(self) -> None:
+        window = _FakeWindow(_MalformedDownloadController())
+        coordinator = WebSourcesCoordinator(window)
+        item = WebItem(
+            url="https://cdn.example.com/a.png",
+            name="a.png",
+            ext=".png",
+            confidence=Confidence.DIRECT,
+        )
+        first_patch, second_patch = self._progress_patches()
+        with first_patch, second_patch:
+            coordinator.on_download_requested(WebDownloadRequest(items=(item,)))
+        self.assertEqual([], window.register_calls)
+        self.assertTrue(any("downloaded 1" in message.lower() for message in window.status_updates))
+
+    def test_diagnostics_uses_only_the_diagnostics_call(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        with patch.object(coordinator, "_diagnostics_summary_for_url", return_value="Connection check passed"):
+            coordinator.on_diagnostics_requested(WebDiagnosticsRequest(url="https://example.com"))
+        self.assertEqual("Connection check passed", window.web_sources_panel.status_messages[-1])
+        self.assertEqual([], window.controller.scanned_urls)
+
+    def test_registry_update_accepts_empty_list_without_touching_results(self) -> None:
+        window = _FakeWindow()
+        window.web_sources_panel.sources = [{"id": "old"}]
+        window.web_sources_panel._store.add(
+            ScanResults(
+                items=(
+                    WebItem(
+                        url="https://cdn.example.com/a.png",
+                        name="a.png",
+                        ext=".png",
+                        confidence=Confidence.DIRECT,
+                    ),
+                )
+            )
+        )
+        coordinator = WebSourcesCoordinator(window)
+        coordinator.on_registry_changed([])
+        self.assertEqual([], window.web_sources_panel.sources)
+        self.assertEqual(1, len(window.web_sources_panel.found_items()))
+
+    def test_invalid_request_types_do_not_call_the_wrong_operation(self) -> None:
+        window = _FakeWindow()
+        coordinator = WebSourcesCoordinator(window)
+        coordinator.on_scan_requested({"urls": ["https://example.com"]})
+        coordinator.on_discover_links_requested(self._scan_request("https://example.com"))
+        coordinator.on_download_requested(WebDiagnosticsRequest(url="https://example.com"))
+        self.assertEqual([], window.controller.scanned_urls)
+        self.assertEqual("", window.controller.discovery_url)
+        self.assertEqual(3, len(window.web_sources_panel.status_messages))
 
 
 if __name__ == "__main__":
     unittest.main()
-
-

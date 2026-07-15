@@ -6,7 +6,12 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from image_engine_app.engine.models import AssetRecord, BackgroundRemovalMode, normalize_background_removal_mode
+from image_engine_app.engine.models import (
+    AssetRecord,
+    BackgroundRemovalMode,
+    BatchEditSource,
+    normalize_background_removal_mode,
+)
 from image_engine_app.engine.process.presets_apply import PresetApplyError
 
 
@@ -22,26 +27,23 @@ def prepare_batch_assets(
     selected_assets: list[AssetRecord],
     active_asset: AssetRecord | None,
     controller: Any,
-    auto_export: bool,
-    apply_active_edits: bool,
-    apply_selected_preset: bool,
+    edit_source: BatchEditSource,
     selected_preset_name: str,
     background_override: str | None,
 ) -> BatchPreparationResult:
     assets = [deepcopy(asset) for asset in selected_assets]
     _clear_derived_outputs(assets)
 
-    if auto_export and active_asset is not None:
-        _apply_active_export_settings(active_asset, assets)
-
-    if apply_active_edits and active_asset is not None:
+    if edit_source is BatchEditSource.COPY_ACTIVE:
+        if active_asset is None:
+            raise ValueError("select an active asset before copying its controls")
         _apply_active_edit_settings(active_asset, assets)
 
     applied_preset_count = 0
     skipped_preset_count = 0
-    if apply_selected_preset:
+    if edit_source is BatchEditSource.CHOSEN_PRESET:
         if not selected_preset_name:
-            raise ValueError("choose a preset or disable preset apply")
+            raise ValueError("choose a preset for this batch")
         applied_preset_count, skipped_preset_count = _apply_named_preset_to_assets(
             controller,
             assets,
@@ -58,23 +60,13 @@ def prepare_batch_assets(
     )
 
 
-def _apply_active_export_settings(active_asset: AssetRecord, assets: list[AssetRecord]) -> None:
-    template = deepcopy(active_asset.edit_state.settings.export)
-    for asset in assets:
-        asset.edit_state.settings.export = deepcopy(template)
-
-
 def _apply_active_edit_settings(active_asset: AssetRecord, assets: list[AssetRecord]) -> None:
     template_mode = deepcopy(active_asset.edit_state.mode)
-    template_apply_target = deepcopy(active_asset.edit_state.apply_target)
-    template_sync = bool(active_asset.edit_state.sync_current_final)
     template_heavy_jobs = deepcopy(active_asset.edit_state.queued_heavy_jobs)
     template_settings = deepcopy(active_asset.edit_state.settings)
 
     for asset in assets:
         asset.edit_state.mode = deepcopy(template_mode)
-        asset.edit_state.apply_target = deepcopy(template_apply_target)
-        asset.edit_state.sync_current_final = template_sync
         asset.edit_state.queued_heavy_jobs = deepcopy(template_heavy_jobs)
         asset.edit_state.settings = deepcopy(template_settings)
 

@@ -5,15 +5,15 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, Callable
 
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QLabel, QLineEdit, QSpinBox, QWidget
 
 from image_engine_app.engine.models import (
     BackgroundRemovalMode,
     ChromaSubsampling,
     ExportFormat,
-    ExportProfile,
     ScaleMethod,
 )
+from image_engine_app.engine.process.output_size import CUSTOM_SIZE, OUTPUT_SIZE_CHOICES
 
 
 def settings_group_builders(panel: Any) -> dict[str, Callable[[QFormLayout, QWidget], None]]:
@@ -24,14 +24,24 @@ def settings_group_builders(panel: Any) -> dict[str, Callable[[QFormLayout, QWid
         "Cleanup": partial(build_cleanup_group, panel),
         "Edges": partial(build_edges_group, panel),
         "Transparency": partial(build_transparency_group, panel),
-        "AI Enhance": partial(build_ai_enhance_group, panel),
         "GIF Controls": partial(build_gif_controls_group, panel),
         "Export": partial(build_export_group, panel),
-        "Export Encoding": partial(build_export_encoding_group, panel),
     }
 
 
 def build_pixel_resolution_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
+    output_size = QComboBox(page)
+    for choice in OUTPUT_SIZE_CHOICES:
+        output_size.addItem(choice.label, choice.key)
+    output_size.addItem("Custom dimensions", CUSTOM_SIZE)
+    output_size.setToolTip(
+        "Choose an integer scale for sprites or a standard output height. "
+        "Standard heights keep width on Auto so the image aspect ratio is preserved."
+    )
+    output_size.currentIndexChanged.connect(panel._on_output_size_changed)
+    panel._output_size = output_size
+    form.addRow("Output size", output_size)
+
     resize = panel._new_float_spin(page, minimum=1.0, maximum=3200.0, step=10.0, default=100.0)
     resize.setSuffix(" %")
     resize.valueChanged.connect(panel._on_resize_percent_changed)
@@ -222,32 +232,11 @@ def build_transparency_group(panel: Any, form: QFormLayout, page: QWidget) -> No
     form.addRow("Alpha threshold", threshold)
 
 
-def build_ai_enhance_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
-    upscale = panel._new_float_spin(page, minimum=1.0, maximum=16.0, step=0.5, default=1.0)
-    panel._bind_float(upscale, "ai", "upscale_factor")
-    panel._upscale_factor = upscale
-    form.addRow("Upscale factor", upscale)
-
-    deblur = panel._new_float_spin(page, minimum=0.0, maximum=2.0, step=0.05, default=0.0)
-    panel._bind_float(deblur, "ai", "deblur_strength")
-    panel._ai_deblur = deblur
-    form.addRow("Deblur strength", deblur)
-
-    reconstruct = panel._new_float_spin(page, minimum=0.0, maximum=2.0, step=0.05, default=0.0)
-    panel._bind_float(reconstruct, "ai", "detail_reconstruct")
-    panel._ai_detail_reconstruct = reconstruct
-    form.addRow("Detail reconstruct", reconstruct)
-
-    bg_remove = panel._new_float_spin(page, minimum=0.0, maximum=2.0, step=0.05, default=0.0)
-    panel._bind_float(bg_remove, "ai", "bg_remove_strength")
-    panel._ai_bg_remove = bg_remove
-    form.addRow("BG remove strength", bg_remove)
-
-
 def build_gif_controls_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
     frame_delay = QSpinBox(page)
-    frame_delay.setRange(1, 5000)
-    frame_delay.setValue(100)
+    frame_delay.setRange(0, 5000)
+    frame_delay.setValue(0)
+    frame_delay.setSpecialValueText("Keep original")
     frame_delay.setSuffix(" ms")
     panel._bind_int(frame_delay, "gif", "frame_delay_ms")
     panel._frame_delay = frame_delay
@@ -282,14 +271,6 @@ def build_export_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
     format_hint.setWordWrap(True)
     panel._export_format_hint = format_hint
     form.addRow("", format_hint)
-
-    export_profile = QComboBox(page)
-    export_profile.addItem("Web", ExportProfile.WEB)
-    export_profile.addItem("App Asset", ExportProfile.APP_ASSET)
-    export_profile.addItem("Print", ExportProfile.PRINT)
-    export_profile.currentIndexChanged.connect(panel._on_export_profile_changed)
-    panel._export_profile = export_profile
-    form.addRow("Export profile", export_profile)
 
     export_format = QComboBox(page)
     export_format.addItem("Auto (profile/source)", ExportFormat.AUTO)
@@ -330,20 +311,12 @@ def build_export_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
     panel._strip_metadata = strip
     form.addRow("", strip)
 
-
-def build_export_encoding_group(panel: Any, form: QFormLayout, page: QWidget) -> None:
-    open_encoding = QPushButton("Open Encoding Window", page)
-    open_encoding.setAutoDefault(False)
-    open_encoding.clicked.connect(panel._emit_open_encoding_window)
-    panel._open_encoding_window_btn = open_encoding
-    form.addRow("", open_encoding)
-
     compression = QSpinBox(page)
     compression.setRange(0, 9)
     compression.setValue(6)
     panel._bind_int(compression, "export", "compression_level")
     panel._compression_level = compression
-    form.addRow("Compression level", compression)
+    form.addRow("PNG compression", compression)
 
     chroma = QComboBox(page)
     chroma.addItem("Auto", ChromaSubsampling.AUTO)
@@ -352,15 +325,7 @@ def build_export_encoding_group(panel: Any, form: QFormLayout, page: QWidget) ->
     chroma.addItem("4:2:0", ChromaSubsampling.CS_420)
     chroma.currentIndexChanged.connect(panel._on_chroma_subsampling_changed)
     panel._chroma_subsampling = chroma
-    form.addRow("Chroma subsampling", chroma)
-
-    palette_limit = QSpinBox(page)
-    palette_limit.setRange(0, 256)
-    palette_limit.setValue(0)
-    palette_limit.setSpecialValueText("Auto")
-    palette_limit.valueChanged.connect(panel._on_palette_limit_changed)
-    panel._palette_limit = palette_limit
-    form.addRow("Palette Limit", palette_limit)
+    form.addRow("JPEG chroma", chroma)
 
     ico_sizes = QLineEdit(page)
     ico_sizes.setPlaceholderText("16, 32, 48, 64, 128, 256")

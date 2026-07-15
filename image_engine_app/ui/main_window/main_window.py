@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from image_engine_app.app.settings_store import SessionStore
 from image_engine_app.app.ui_controller import ImageEngineUIController
 from image_engine_app.engine.models import AssetRecord, SessionState
@@ -37,7 +35,6 @@ from image_engine_app.ui.main_window.batch_coordinator import BatchCoordinator
 from image_engine_app.ui.main_window.control_strip import ControlStrip
 from image_engine_app.ui.main_window.export_bar import ExportBar
 from image_engine_app.ui.main_window.export_coordinator import ExportCoordinator
-from image_engine_app.ui.main_window.encoding_coordinator import EncodingCoordinator
 from image_engine_app.ui.main_window.preview_panel import PreviewPanel
 from image_engine_app.ui.main_window.settings_panel import SettingsPanel
 from image_engine_app.ui.main_window.shell_coordinator import ShellCoordinator
@@ -47,16 +44,13 @@ from image_engine_app.ui.main_window.local_import_coordinator import LocalImport
 from image_engine_app.ui.main_window.web_sources_panel import WebSourcesPanel
 from image_engine_app.ui.main_window.web_sources_coordinator import WebSourcesCoordinator
 from image_engine_app.ui.windows.batch_manager import BatchManagerDialog
-from image_engine_app.ui.windows.export_encoding import ExportEncodingDialog
 from image_engine_app.ui.windows.preset_manager import PresetManagerDialog
 
 
 class ImageEngineMainWindow(QMainWindow):
-    """Prompt 16 main window shell for the Sprite Factory app."""
+    """Main Sprite Factory window and coordinator wiring."""
 
     MAX_RENDERED_WORKSPACE_TABS = 100
-    DEFAULT_WORKSPACE_RAIL_WIDTH = 248
-    DEFAULT_WORKSPACE_INSPECTOR_WIDTH = 398
     MOCK_PAGE_RAIL_WIDTH = 86
     MOCK_WORKSPACE_PANEL_WIDTH = 276
     MOCK_INSPECTOR_PANEL_WIDTH = 398
@@ -117,9 +111,15 @@ class ImageEngineMainWindow(QMainWindow):
         self._session_coordinator = SessionCoordinator(self)
         self._local_import_coordinator = LocalImportCoordinator(self)
         self._export_coordinator = ExportCoordinator(self)
-        self.export_encoding_dialog = ExportEncodingDialog(self)
-        self._encoding_coordinator = EncodingCoordinator(self)
-        self.preset_manager_dialog = PresetManagerDialog(self.controller, self) if self.controller is not None else None
+        self.preset_manager_dialog = (
+            PresetManagerDialog(
+                self.controller,
+                self,
+                active_asset_provider=lambda: self.ui_state.active_asset,
+            )
+            if self.controller is not None
+            else None
+        )
 
         self._build_ui()
         self._bind_state()
@@ -199,18 +199,12 @@ class ImageEngineMainWindow(QMainWindow):
         self._add_toolbar_brand_lockup(toolbar)
         toolbar.addSeparator()
 
-        # Session/import menus
-        self._add_toolbar_menu_button(
+        # Workspace files and local imports share one conventional File menu.
+        self._add_toolbar_popup_menu_button(
             toolbar,
-            text="Session",
-            icon_name=None,
-            actions=self._build_session_menu_actions(),
-        )
-        self._add_toolbar_menu_button(
-            toolbar,
-            text="Import",
-            icon_name=None,
-            actions=self._build_import_menu_actions(),
+            text="File",
+            menu=self._build_file_menu(),
+            tooltip="Workspace and local file actions",
         )
         toolbar.addSeparator()
 
@@ -223,13 +217,6 @@ class ImageEngineMainWindow(QMainWindow):
 
         toolbar.addSeparator()
         self._add_toolbar_command_button(toolbar, text="Batch", callback=self._show_batch_manager)
-        self._add_toolbar_command_button(
-            toolbar,
-            text="Presets",
-            callback=(self._show_preset_manager if self.preset_manager_dialog is not None else None),
-            tooltip="Open preset manager",
-            width=76,
-        )
 
         toolbar.addSeparator()
         self._compact_ui_action = QAction("Compact UI", self, checkable=True)
@@ -299,37 +286,6 @@ class ImageEngineMainWindow(QMainWindow):
 
         toolbar.addWidget(brand)
 
-    def _add_toolbar_menu_button(
-        self,
-        toolbar: QToolBar,
-        *,
-        text: str,
-        icon_name: str | None,
-        actions: list[QAction],
-        tooltip: str | None = None,
-    ) -> None:
-        menu = QMenu(self)
-        for action in actions:
-            menu.addAction(action)
-
-        button = QToolButton(toolbar)
-        button.setObjectName("toolbarMenuButton")
-        button.setText(text)
-        if icon_name:
-            button.setIcon(icon(icon_name))
-            button.setToolButtonStyle(
-                Qt.ToolButtonStyle.ToolButtonIconOnly
-                if not text
-                else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
-            )
-        else:
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        button.setMenu(menu)
-        button.setToolTip(tooltip or text)
-        button.setFixedSize(72, 30)
-        toolbar.addWidget(button)
-
     def _add_toolbar_popup_menu_button(
         self,
         toolbar: QToolBar,
@@ -368,35 +324,27 @@ class ImageEngineMainWindow(QMainWindow):
             button.clicked.connect(callback)
         toolbar.addWidget(button)
 
-    def _build_session_menu_actions(self) -> list[QAction]:
-        new_action = QAction(icon("new"), "New Session", self)
-        new_action.triggered.connect(self._new_session)
+    def _build_file_menu(self) -> QMenu:
+        menu = QMenu(self)
 
-        open_action = QAction(icon("open"), "Open Session", self)
-        open_action.triggered.connect(self._open_session_file)
+        new_action = menu.addAction(icon("new"), "New Workspace")
+        new_action.triggered.connect(self._new_workspace)
 
-        save_action = QAction(icon("save"), "Save Session", self)
-        save_action.triggered.connect(self._save_session_file)
+        open_action = menu.addAction(icon("open"), "Open Workspace...")
+        open_action.triggered.connect(self._open_workspace_file)
 
-        clear_action = QAction("Clear Session", self)
-        clear_action.triggered.connect(self._clear_session)
+        save_action = menu.addAction(icon("save"), "Save Workspace...")
+        save_action.triggered.connect(self._save_workspace_file)
 
-        sessions_folder_action = QAction("Sessions Folder", self)
-        sessions_folder_action.triggered.connect(self._open_sessions_folder)
+        menu.addSeparator()
 
-        return [new_action, open_action, save_action, clear_action, sessions_folder_action]
+        add_files_action = menu.addAction("Add Files...")
+        add_files_action.triggered.connect(self._import_files)
 
-    def _build_import_menu_actions(self) -> list[QAction]:
-        import_files_action = QAction("Import File(s)...", self)
-        import_files_action.triggered.connect(self._import_files)
+        add_folder_action = menu.addAction("Add Folder...")
+        add_folder_action.triggered.connect(self._import_folder)
 
-        import_folder_action = QAction("Import Folder...", self)
-        import_folder_action.triggered.connect(self._import_folder)
-
-        import_zip_action = QAction("Import ZIP...", self)
-        import_zip_action.triggered.connect(self._import_zip_archive)
-
-        return [import_files_action, import_folder_action, import_zip_action]
+        return menu
 
     def _build_center_shell(self) -> None:
         central = QWidget(self)
@@ -544,13 +492,6 @@ class ImageEngineMainWindow(QMainWindow):
             button.setChecked(button_index == index)
             button.blockSignals(False)
 
-    def _default_workspace_splitter_sizes(self) -> list[int]:
-        return [
-            int(self.DEFAULT_WORKSPACE_RAIL_WIDTH),
-            1180,
-            int(self.DEFAULT_WORKSPACE_INSPECTOR_WIDTH),
-        ]
-
     def _build_helper_tab_page(self, parent: QWidget) -> QWidget:
         page = QWidget(parent)
         page.setObjectName("shellHelperPage")
@@ -577,78 +518,113 @@ class ImageEngineMainWindow(QMainWindow):
         guide.setHtml(
             "<h3>Quick Start</h3>"
             "<ol>"
-            "<li><b>Start</b>: use <b>Session</b> for New, Open, Save, Clear, or Sessions Folder.</li>"
-            "<li><b>Add assets</b>: use the top <b>Import</b> menu for files/folders/ZIPs, or <b>Web Sources</b> for website scans.</li>"
+            "<li><b>Start</b>: open <b>File</b> to create, open, or save a workspace.</li>"
+            "<li><b>Add assets</b>: use <b>File</b> for images, folders, or ZIPs, or <b>Web Sources</b> for website scans.</li>"
             f"<li><b>Supported formats</b>: {self._local_extensions_label()}.</li>"
             "<li><b>Edit</b>: use the center previews, bottom tools, and right-side edit settings.</li>"
-            "<li><b>Finish</b>: Preview, Apply, Skip, Export, or send selected assets through Batch.</li>"
+            "<li><b>Finish</b>: review the automatically updated Final pane, then Export, Skip, or send selected assets through Batch.</li>"
             "</ol>"
             "<h3>Studio Shell</h3>"
             "<ul>"
             "<li><b>Left rail</b>: Workspace, Web Sources, and Helper.</li>"
             "<li><b>Workspace panel</b>: asset list, empty state, and 100-item queue paging.</li>"
             "<li><b>Preview Studio</b>: Current and Final stay central; use per-pane Reset to refit either side.</li>"
-            "<li><b>Tools shelf</b>: quick Preset, Target, Live, Run, BG handling, reset, and export workflow controls.</li>"
-            "<li><b>Edit Settings</b>: right-side tiles jump to Pixel, Color, Detail, Cleanup, Edges, Alpha, GIF, Export, and Encoding.</li>"
+            "<li><b>Tools shelf</b>: compatible Presets, background handling, Final refresh, processing, and reset actions.</li>"
+            "<li><b>Edit Settings</b>: right-side tiles jump to Pixel, Color, Detail, Cleanup, Edges, Alpha, GIF, and Export.</li>"
             "</ul>"
             "<h3>Top Toolbar</h3>"
             "<ul>"
-            "<li><b>Session</b>: New Session, Open Session, Save Session, Clear Session, and Sessions Folder.</li>"
-            "<li><b>Import</b>: the only local import control; use it for files, folders, or ZIPs.</li>"
+            "<li><b>File</b>: New Workspace, Open Workspace, Save Workspace, Add Files, and Add Folder.</li>"
+            "<li><b>Add Files</b>: choose one or more supported images or ZIP archives. ZIP images are safely extracted and added through the same import workflow.</li>"
+            "<li><b>New / Open Workspace</b>: if the current workspace contains work, Sprite Factory asks whether to save, discard, or cancel before replacing it.</li>"
             "<li><b>Format / Alpha / Frames</b>: quick readout for the selected asset.</li>"
-            "<li><b>Batch / Presets</b>: open the queue manager and advanced preset editor directly.</li>"
+            "<li><b>Batch</b>: open the queue manager for multi-asset editing and export.</li>"
             "<li><b>View</b>: Compare View, Current Only, Final Only, Compact UI, and Reset Shell live here.</li>"
             "</ul>"
             "<h3>Workspace Flow</h3>"
             "<ol>"
             "<li>Import or download assets, then choose one from Workspace.</li>"
-            "<li>Use <b>Target</b> to choose Current, Final, or Both for the next apply.</li>"
-            "<li>Use <b>Live</b> to link views or turn Auto on/off for preview updates.</li>"
-            "<li>Use <b>BG</b> for background handling: keep, remove white, or remove black.</li>"
-            "<li><b>More</b> keeps reset actions separate: Reset Edits changes image edits; Reset View changes zoom/pan.</li>"
+            "<li><b>Current</b> always shows the untouched source; <b>Final</b> shows your active edits.</li>"
+            "<li>Visual control changes refresh <b>Final</b> automatically. Use <b>Refresh Final</b> to rebuild it manually whenever needed.</li>"
+            "<li>When a preset queues heavier processing, the same Run button changes to <b>Run Heavy</b>.</li>"
+            "<li>Use the background menu to keep the image background, remove white, or remove black.</li>"
+            "<li><b>Reset Edits</b> restores the controls detected for that asset at import. <b>Reset View</b> changes zoom only.</li>"
             "<li>The export footer has Profile, Export, Skip, folder output, Auto-next, and Estimate.</li>"
             "</ol>"
             "<h3>Settings Groups</h3>"
             "<ul>"
-            "<li><b>Pixel and Resolution</b>: resize %, DPI metadata, target width/height, scale method.</li>"
+            "<li><b>Pixel and Resolution</b>: Output size offers 2x/3x/4x/8x sprite scaling and 240p-2160p output heights. Standard heights keep width on Auto to preserve proportions.</li>"
+            "<li><b>Resize % / target dimensions</b>: these change real pixel dimensions. <b>DPI</b> changes print metadata only and does not create extra image detail.</li>"
             "<li><b>Color and Light</b>, <b>Detail</b>, <b>Cleanup</b>, <b>Edges</b>: core visual tuning controls.</li>"
             "<li><b>Transparency</b>: keep/remove backgrounds, refine alpha, and check matte handling.</li>"
-            "<li><b>GIF Controls</b>: only enabled for animated assets.</li>"
-            "<li><b>Export</b>: format/quality/metadata options.</li>"
-            "<li><b>Export Encoding</b>: compression, chroma, palette tuning, and Encoding Window launch.</li>"
+            "<li><b>GIF Controls</b>: timing, looping, palette, dithering, and frame optimization for animated GIFs.</li>"
+            "<li><b>Export</b>: profile, format, quality, metadata, PNG compression, JPEG chroma, and ICO sizes in one place.</li>"
             "<li><b>Choose what to edit</b>: tiles jump directly to the matching settings card.</li>"
             "</ul>"
             "<h3>Presets</h3>"
             "<ul>"
-            "<li><b>Preset</b> in the Tools shelf applies a compatible preset to the active asset for quick polish.</li>"
-            "<li><b>Presets</b> in the top toolbar opens the advanced manager where you can duplicate a system template, set compatible formats/tags, edit the JSON delta, then save a user preset.</li>"
-            "<li>Presets are compatibility-aware; GIF-safe presets avoid breaking animated assets.</li>"
-            "<li><b>Batch</b> can copy current edits, apply a preset, apply background overrides, process, then export.</li>"
+            "<li>Each imported asset keeps its own detected control baseline. A preset starts from that baseline rather than blank defaults.</li>"
+            "<li><b>Preset</b> in the Tools shelf applies one compatible preset to the active asset and refreshes Final.</li>"
+            "<li><b>Manage Presets...</b> at the bottom of the Tools preset menu opens Preset Studio. Choose <b>New from Active</b> or <b>Use Active Controls</b>; only controls changed from the detected baseline are saved.</li>"
+            "<li>The Tools menu, Preset Studio, and Batch all use the same preset library. Bundled presets and your saved presets are merged once, then filtered for the active asset.</li>"
+            "<li>Format and asset-type scopes are filled from the active asset. The JSON editor is optional under Advanced.</li>"
+            "<li>User presets appear in Workspace and Batch immediately. Compatibility checks protect animated GIFs and format-specific assets. Reset Edits restores the detected controls from before the preset was chosen.</li>"
             "</ul>"
             "<h3>Web Sources</h3>"
-            "<ol>"
-            "<li>Use <b>1. Scan Pages</b> to paste one page URL, or paste a list of page URLs and scan them together.</li>"
-            "<li>Use <b>Save URL as Page</b> when you want to keep one page as a saved shortcut.</li>"
-            "<li>Use <b>2. Saved Shortcuts</b> only when you want to scan a saved shortcut again.</li>"
-            "<li>Use <b>3. Find Linked Pages</b> only when a page is an index/category page and you need to discover linked pages first.</li>"
-            "<li>Large linked-page scans are capped at 100 pages unless you confirm, which helps avoid freezing on huge sites.</li>"
-            "<li>Use <b>4. Found Files</b> to filter by PNG/GIF/WEBP/JPG/ZIP, search names/URLs, and select files.</li>"
-            "<li>Select files and click <b>Download Selected</b>; Sprite Factory routes them into the workspace automatically.</li>"
-            "<li>Use <b>More</b> for Network Check or saved-page cleanup.</li>"
-            "</ol>"
+            "<p>Web Sources uses one scan system for entered URLs, saved pages, and linked pages. Every successful scan adds unique files to the same Found Files list instead of replacing earlier results.</p>"
+            "<h4>1. Scan Pages</h4>"
+            "<ul>"
+            "<li>Paste one full page URL per line. The list can contain pages from several different websites.</li>"
+            "<li><b>Scan Pages</b> validates the list, removes repeated URLs, applies the safety limit, and sends the remaining pages through the same scan call.</li>"
+            "<li><b>More</b> contains only entered-URL actions: Save Entered Pages, Check First URL, Include uncertain image links, and Clear Entered URLs.</li>"
+            "<li>Include uncertain image links is optional. Enable it when a website hides useful image links behind URLs that do not end with a normal file extension.</li>"
+            "</ul>"
+            "<h4>2. Saved Pages</h4>"
+            "<ul>"
+            "<li><b>Save Entered Pages</b> groups entered URLs by website and stores each exact page once.</li>"
+            "<li>Expand a website and check individual pages, or check the website row to choose all of its pages. Pages from different websites can be checked together.</li>"
+            "<li><b>Scan Selected</b> sends every checked page through the normal scan call. If nothing is checked, the currently highlighted page is used.</li>"
+            "<li><b>More</b> contains saved-page actions only: check the current page, clear checked pages, check the current page connection, remove the current page, or remove the current website.</li>"
+            "<li>Changing or removing a saved shortcut never clears Found Files.</li>"
+            "</ul>"
+            "<h4>3. Find Linked Pages</h4>"
+            "<ul>"
+            "<li>This optional section is for index, category, or directory pages that link to many separate sprite pages.</li>"
+            "<li>Use <b>Discover from</b> to choose exactly which entered or saved page will be inspected, then click <b>Find Pages</b>.</li>"
+            "<li>Search the discovered page list, select the pages you need, then click <b>Scan Selected</b>. Finding pages does not download or scan files by itself.</li>"
+            "<li><b>More</b> contains linked-page actions only: select visible pages, clear page selection, and clear linked pages.</li>"
+            "<li>Any scan above 100 pages asks for confirmation and scans only the first 100, reducing the chance of a freeze or website rate limit.</li>"
+            "</ul>"
+            "<h4>4. Found Files and Download</h4>"
+            "<ul>"
+            "<li>Found Files is a persistent basket. New scans add unique file URLs; repeated URLs and failed pages do not erase earlier results.</li>"
+            "<li>Search matches filenames, URLs, and source pages. Hide words excludes matching results. File Types controls PNG, GIF, WEBP, JPG/JPEG, and ZIP visibility.</li>"
+            "<li><b>More</b> contains result actions only: select all visible files, clear file selection, and Clear Found Files.</li>"
+            "<li><b>Download Options</b> controls skipping files already downloaded and whether ZIP extraction is allowed.</li>"
+            "<li><b>Download Selected</b> imports selected files and automatically routes them into Main, Shiny, Animated, or Items in the workspace.</li>"
+            "<li>Only Clear Found Files empties the result basket. Search filters, URL clearing, saved-page changes, linked-page clearing, cancellation, and failed scans keep it intact.</li>"
+            "</ul>"
+            "<h4>Web Source Status and Errors</h4>"
+            "<ul>"
+            "<li>The status line reports new files, total stored files, duplicates, filtered links, and failed pages. Hover a failure message for page details.</li>"
+            "<li>A connection check tests the selected page but never starts a scan. HTTP 403/429 usually means the website blocked or limited automated requests; HTTP 5xx means the website server failed.</li>"
+            "</ul>"
             "<h3>Batch</h3>"
             "<ul>"
-            "<li>Select queue items, choose optional rules, then click <b>Run Batch</b>.</li>"
+            "<li>Select queue items, choose one edit source, then click <b>Run Selected</b>.</li>"
             "<li>Use <b>Queue</b> for Select all, Select failed, and Clear selection.</li>"
-            "<li>Use <b>Options</b> for Smart presets, Export after processing, and Fast run.</li>"
-            "<li>Run order: copy current edits, apply chosen preset, apply background override, process, export.</li>"
+            "<li><b>Keep each asset's controls</b> uses every file exactly as it is currently configured.</li>"
+            "<li><b>Apply one preset</b> starts from each asset's detected baseline and applies the same compatible saved preset.</li>"
+            "<li><b>Copy active asset controls</b> deliberately copies the selected Workspace asset's controls to the batch.</li>"
+            "<li><b>Smart match each asset</b> chooses at most one compatible system preset per asset; it never stacks hidden presets.</li>"
+            "<li>Background override is applied after the chosen edit source. Use <b>Options</b> only for Export after processing and Fast run.</li>"
             "<li>Use naming/output options for clean filenames and a consistent export folder.</li>"
             "<li>Failed items can be selected again after the run.</li>"
             "</ul>"
             "<h3>Troubleshooting</h3>"
             "<ul>"
             "<li>If Web Sources returns blocked errors such as WinError 10013, check firewall/VPN/proxy/antivirus web shield.</li>"
-            "<li>If a site blocks scan requests (HTTP 403/429), try Network Check or use direct image URLs.</li>"
+            "<li>If a site blocks scan requests (HTTP 403/429), try the section's connection check or use direct image URLs.</li>"
             "<li>Some settings groups lock automatically when the active asset does not support that feature.</li>"
             "</ul>"
         )
@@ -664,16 +640,19 @@ class ImageEngineMainWindow(QMainWindow):
         return ", ".join(labels)
 
     @classmethod
-    def _local_file_dialog_filter(cls) -> str:
+    def _local_import_dialog_filter(cls) -> str:
         patterns = " ".join(f"*{ext}" for ext in cls._supported_local_extensions())
-        return f"Supported Images ({patterns});;All Files (*)"
+        return (
+            f"Supported Images and ZIPs ({patterns} *.zip);;"
+            f"Supported Images ({patterns});;"
+            "ZIP Archives (*.zip);;All Files (*)"
+        )
 
     def _bind_state(self) -> None:
         self.preview_panel.bind_state(self.ui_state)
         self.control_strip.bind_state(self.ui_state)
         self.export_bar.bind_state(self.ui_state)
         self.settings_panel.bind_state(self.ui_state)
-        self.settings_panel.open_encoding_window_requested.connect(self._show_export_encoding_window)
 
         self.ui_state.status_message_changed.connect(self._status)
         self.ui_state.active_asset_changed.connect(self._on_active_asset_changed)
@@ -695,20 +674,15 @@ class ImageEngineMainWindow(QMainWindow):
         self.asset_tabs.window_section_requested.connect(self._on_workspace_window_section_requested)
         self.batch_manager_dialog.run_requested.connect(self._on_batch_run_requested)
         self.batch_manager_dialog.cancel_run_requested.connect(self._on_batch_cancel_requested)
-        self.export_encoding_dialog.apply_requested.connect(self._on_export_encoding_apply_requested)
         self.web_sources_panel.registry_changed.connect(self._on_web_sources_registry_changed)
         self.web_sources_panel.scan_requested.connect(self._on_web_sources_scan_requested)
-        self.web_sources_panel.index_links_requested.connect(self._on_web_sources_index_links_requested)
-        self.web_sources_panel.index_scan_all_requested.connect(self._on_web_sources_index_scan_all_requested)
-        self.web_sources_panel.multi_scan_requested.connect(self._on_web_sources_multi_scan_requested)
+        self.web_sources_panel.discover_links_requested.connect(self._on_web_sources_discover_links_requested)
         self.web_sources_panel.download_requested.connect(self._on_web_sources_download_requested)
-        self.web_sources_panel.network_diagnostics_requested.connect(self._on_web_sources_network_diagnostics_requested)
+        self.web_sources_panel.diagnostics_requested.connect(self._on_web_sources_diagnostics_requested)
+        self.web_sources_panel.preferences_changed.connect(self._on_web_sources_preferences_changed)
 
         if self.preset_manager_dialog is not None and self.controller is not None:
-            # Keep batch preset choices fresh after saves/deletes in the manager.
-            self.preset_manager_dialog.finished.connect(
-                lambda _code=0: self._refresh_preset_surfaces()
-            )
+            self.preset_manager_dialog.presets_changed.connect(self._refresh_preset_surfaces)
 
         self._init_web_sources_panel()
         self._refresh_preset_surfaces()
@@ -819,32 +793,20 @@ class ImageEngineMainWindow(QMainWindow):
     def _on_export_directory_open_requested(self) -> None:
         self._export_coordinator.on_export_directory_open_requested()
 
-    def _new_session(self) -> None:
-        self._session_coordinator.new_session()
+    def _new_workspace(self) -> None:
+        self._session_coordinator.new_workspace()
 
-    def _save_session_file(self) -> None:
-        self._session_coordinator.save_session_file()
+    def _save_workspace_file(self) -> None:
+        self._session_coordinator.save_workspace_file()
 
-    def _open_session_file(self) -> None:
-        self._session_coordinator.open_session_file()
-
-    def _open_sessions_folder(self) -> None:
-        self._session_coordinator.open_sessions_folder()
-
-    def _clear_session(self) -> None:
-        self._session_coordinator.clear_session()
+    def _open_workspace_file(self) -> None:
+        self._session_coordinator.open_workspace_file()
 
     def _import_files(self) -> None:
         self._local_import_coordinator.import_files()
 
     def _import_folder(self) -> None:
         self._local_import_coordinator.import_folder()
-
-    def _import_zip_archive(self) -> None:
-        self._local_import_coordinator.import_zip_archive()
-
-    def _load_workspace_from_file(self, path: Path, *, source_label: str) -> None:
-        self._session_coordinator.load_workspace_from_file(path, source_label=source_label)
 
     def _show_batch_manager(self) -> None:
         self._batch_coordinator.show_manager()
@@ -857,12 +819,6 @@ class ImageEngineMainWindow(QMainWindow):
         self.preset_manager_dialog.show()
         self.preset_manager_dialog.raise_()
         self.preset_manager_dialog.activateWindow()
-
-    def _show_export_encoding_window(self) -> None:
-        self._encoding_coordinator.show_export_encoding_window()
-
-    def _on_export_encoding_apply_requested(self, options_obj: object) -> None:
-        self._encoding_coordinator.on_export_encoding_apply_requested(options_obj)
 
     def compact_ui_enabled(self) -> bool:
         return self._shell_coordinator.compact_ui_enabled()
@@ -882,20 +838,17 @@ class ImageEngineMainWindow(QMainWindow):
     def _on_web_sources_scan_requested(self, payload: object) -> None:
         self._web_sources_coordinator.on_scan_requested(payload)
 
-    def _on_web_sources_index_links_requested(self, payload: object) -> None:
-        self._web_sources_coordinator.on_index_links_requested(payload)
-
-    def _on_web_sources_index_scan_all_requested(self, payload: object) -> None:
-        self._web_sources_coordinator.on_index_scan_all_requested(payload)
-
-    def _on_web_sources_multi_scan_requested(self, payload: object) -> None:
-        self._web_sources_coordinator.on_multi_scan_requested(payload)
+    def _on_web_sources_discover_links_requested(self, payload: object) -> None:
+        self._web_sources_coordinator.on_discover_links_requested(payload)
 
     def _on_web_sources_download_requested(self, payload: object) -> None:
         self._web_sources_coordinator.on_download_requested(payload)
 
-    def _on_web_sources_network_diagnostics_requested(self, payload: object) -> None:
-        self._web_sources_coordinator.on_network_diagnostics_requested(payload)
+    def _on_web_sources_diagnostics_requested(self, payload: object) -> None:
+        self._web_sources_coordinator.on_diagnostics_requested(payload)
+
+    def _on_web_sources_preferences_changed(self, payload: object) -> None:
+        self._web_sources_coordinator.on_preferences_changed(payload)
 
     def _on_batch_run_requested(self, options_obj: object) -> None:
         self._batch_coordinator.on_run_requested(options_obj)

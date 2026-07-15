@@ -52,8 +52,8 @@ class _FakeWindow:
         return [".png", ".jpg", ".gif", ".webp", ".bmp", ".ico", ".tif", ".tiff"]
 
     @staticmethod
-    def _local_file_dialog_filter() -> str:
-        return "Supported Images (*.png *.jpg);;All Files (*)"
+    def _local_import_dialog_filter() -> str:
+        return "Supported Images and ZIPs (*.png *.jpg *.zip);;All Files (*)"
 
     def _register_assets(self, assets: list[AssetRecord], *, set_active: bool) -> None:
         self.registered_assets.append((list(assets), bool(set_active)))
@@ -102,11 +102,40 @@ class LocalImportCoordinatorTests(unittest.TestCase):
         self.assertEqual(True, kwargs.get("flatten"))
         self.assertEqual(True, kwargs.get("dedupe_by_hash"))
         self.assertEqual(1, len(window.registered_assets))
-        self.assertIn("Imported files: 1 asset(s)", window.status_messages[-1])
+        self.assertIn("Added files: 1 asset(s)", window.status_messages[-1])
         self.assertIn("1 duplicate(s) skipped", window.status_messages[-1])
         self.assertIn("1 unsupported file(s) skipped", window.status_messages[-1])
 
-    def test_import_zip_archive_reports_extract_error(self) -> None:
+    def test_import_files_expands_zip_and_regular_images_through_one_call(self) -> None:
+        summary = LocalImportSummary(
+            assets=[_asset("asset-a")],
+            duplicates=[],
+            unsupported=[],
+            raw_result=LocalIngestResult(),
+        )
+        controller = _FakeController(summary)
+        window = _FakeWindow(controller=controller)
+        coordinator = LocalImportCoordinator(window)
+
+        with patch(
+            "image_engine_app.ui.main_window.local_import_coordinator.QFileDialog.getOpenFileNames",
+            return_value=(["C:/images/direct.png", "C:/images/bundle.zip"], ""),
+        ):
+            with patch.object(
+                coordinator,
+                "_extract_zip_images",
+                return_value=["C:/cache/unpacked-a.png", "C:/cache/unpacked-b.gif"],
+            ):
+                coordinator.import_files()
+
+        self.assertEqual(1, len(controller.calls))
+        imported_sources, _kwargs = controller.calls[0]
+        self.assertEqual(
+            ["C:/images/direct.png", "C:/cache/unpacked-a.png", "C:/cache/unpacked-b.gif"],
+            imported_sources,
+        )
+
+    def test_import_files_reports_zip_extract_error(self) -> None:
         summary = LocalImportSummary(
             assets=[],
             duplicates=[],
@@ -118,19 +147,20 @@ class LocalImportCoordinatorTests(unittest.TestCase):
         coordinator = LocalImportCoordinator(window)
 
         with patch(
-            "image_engine_app.ui.main_window.local_import_coordinator.QFileDialog.getOpenFileName",
-            return_value=("C:/images/broken.zip", ""),
+            "image_engine_app.ui.main_window.local_import_coordinator.QFileDialog.getOpenFileNames",
+            return_value=(["C:/images/broken.zip"], ""),
         ):
             with patch(
                 "image_engine_app.ui.main_window.local_import_coordinator.extract_images_only",
                 side_effect=ZipExtractError("Bad ZIP file: C:/images/broken.zip"),
             ):
-                coordinator.import_zip_archive()
+                coordinator.import_files()
 
         self.assertEqual([], controller.calls)
         self.assertEqual([], window.registered_assets)
-        self.assertEqual("ZIP Import Failed", window.error_messages[-1][0])
-        self.assertIn("ZIP import failed", window.status_messages[-1])
+        self.assertEqual("Some Files Could Not Be Added", window.error_messages[-1][0])
+        self.assertIn("broken.zip", window.error_messages[-1][1])
+        self.assertEqual("Add files failed: no supported images were found", window.status_messages[-1])
 
     def test_import_without_controller_shows_status(self) -> None:
         window = _FakeWindow(controller=None)

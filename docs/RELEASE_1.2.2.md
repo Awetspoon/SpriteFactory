@@ -5,8 +5,10 @@ Sprite Factory Pro 1.2.2 completes the preview-first redesign and focuses on rel
 ## Highlights
 
 - Added a compact preset selector directly to the editing tools. It only offers compatible presets for the active asset and updates the final preview immediately.
-- Kept Preset Manager as the advanced workspace for creating, duplicating, editing, and saving user presets.
-- Simplified Batch Manager with compact `Queue` and `Options` menus while retaining isolated batch edits, presets, background rules, naming, and export behavior.
+- Rebuilt Preset Manager around `Use Active Controls`; it saves only changes from the active asset's detected baseline and keeps JSON under optional Advanced controls.
+- Consolidated bundled presets into one validated engine catalog shared by Workspace, Preset Studio, recommendations, and Batch; removed overlapping starter variants.
+- Added real output-size choices for 2x/3x/4x/8x sprite scaling and 240p through 2160p standard heights without duplicating the underlying pixel settings.
+- Rebuilt Batch Manager around one explicit edit source so copied controls, chosen presets, and smart matching cannot stack accidentally.
 - Reworked Web Sources for saved pages, one-page or multi-page scanning, linked-page discovery, keyword and format filtering, scan limits, retries, and clearer failures.
 - Tightened the editor shell, preview controls, workspace paging, export dock, settings cards, labels, and helper guidance.
 - Removed obsolete design drafts, superseded UI/backend modules, generated files, and dead tests from the repository.

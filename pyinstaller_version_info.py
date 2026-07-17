@@ -5,8 +5,8 @@
 
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(1, 2, 2, 0),
-        prodvers=(1, 2, 2, 0),
+        filevers=(1, 2, 3, 0),
+        prodvers=(1, 2, 3, 0),
         mask=0x3F,
         flags=0x0,
         OS=0x40004,
@@ -22,11 +22,11 @@ VSVersionInfo(
                     [
                         StringStruct("CompanyName", "Marcus Apps"),
                         StringStruct("FileDescription", "Sprite Factory"),
-                        StringStruct("FileVersion", "1.2.2"),
+                        StringStruct("FileVersion", "1.2.3"),
                         StringStruct("InternalName", "SpriteFactory"),
                         StringStruct("OriginalFilename", "SpriteFactory.exe"),
                         StringStruct("ProductName", "Sprite Factory"),
-                        StringStruct("ProductVersion", "1.2.2"),
+                        StringStruct("ProductVersion", "1.2.3"),
                     ],
                 )
             ]

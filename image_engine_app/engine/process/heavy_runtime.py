@@ -13,7 +13,7 @@ from image_engine_app.engine.models import (
     HeavyTool,
     normalize_background_removal_mode,
 )
-from image_engine_app.engine.process.preview_support import render_light_pipeline_preview
+from image_engine_app.engine.process.asset_preview import render_asset_preview
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ def execute_heavy_job(
             rendered_preview=False,
         )
 
-    if not render_light_pipeline_preview(asset, derived_cache_dir=cache_root, final_only=False):
+    if not render_asset_preview(asset, derived_cache_dir=cache_root):
         return HeavyJobExecutionResult(
             rendered_preview=False,
         )
@@ -119,7 +119,6 @@ def _resolve_local_source(asset: AssetRecord) -> str | Path | None:
         asset.cache_path,
         asset.source_uri,
         asset.derived_final_path,
-        asset.derived_current_path,
     ):
         if not isinstance(candidate, str) or not candidate.strip():
             continue

@@ -298,7 +298,6 @@ class PreviewPanelTests(unittest.TestCase):
             class _Asset:
                 cache_path = str(image_path)
                 source_uri = str(image_path)
-                derived_current_path = None
                 derived_final_path = None
 
             resolved = panel._resolve_preview_path_for_view(_Asset(), "current")

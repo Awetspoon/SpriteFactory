@@ -7,7 +7,7 @@ import unittest
 
 from image_engine_app.app.paths import ensure_app_paths
 from image_engine_app.app.services import PresetLibrary
-from image_engine_app.engine.models import EditMode, PresetModel
+from image_engine_app.engine.models import AssetFormat, AssetRecord, EditMode, PresetModel
 
 
 class PresetLibraryTests(unittest.TestCase):
@@ -49,3 +49,20 @@ class PresetLibraryTests(unittest.TestCase):
                     settings_delta={"not_a_real_group": {"value": 1}},
                 )
             )
+
+    def test_compatible_only_does_not_fall_back_to_unusable_presets(self) -> None:
+        library = PresetLibrary(
+            system_presets={
+                "Photo": PresetModel(
+                    name="Photo",
+                    description="",
+                    applies_to_formats=["jpg"],
+                    applies_to_tags=["photo"],
+                    mode_min=EditMode.ADVANCED,
+                ),
+            }
+        )
+        asset = AssetRecord(original_name="sprite.png", format=AssetFormat.PNG)
+        asset.classification_tags = ["pixel_art"]
+
+        self.assertEqual(library.available_entries(asset, compatible_only=True), [])

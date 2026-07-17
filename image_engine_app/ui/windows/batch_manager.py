@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from image_engine_app.engine.models import BackgroundRemovalMode
+from image_engine_app.engine.models import BackgroundRemovalMode, BatchEditSource
+from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY
 from image_engine_app.ui.windows.batch_queue_state import (
     BatchQueueRowState,
     BatchQueueState,
@@ -43,13 +44,11 @@ from image_engine_app.ui.windows.batch_queue_state import (
 class BatchDialogOptions:
     """UI-selected batch run options."""
 
-    auto_preset: bool
+    edit_source: BatchEditSource
     auto_export: bool
     preview_skip_mode: bool
     export_name_template: str
     avoid_overwrite: bool
-    apply_active_edits: bool
-    apply_selected_preset: bool
     selected_preset_name: str | None
     background_removal_override: str | None = None
     export_directory: str | None = None
@@ -64,8 +63,10 @@ class BatchManagerDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("batchManagerDialog")
         self.setWindowTitle("Batch Queue Manager")
-        self.resize(860, 600)
+        self.resize(900, 650)
+        self.setMinimumSize(760, 560)
 
         self._summary_label = QLabel("", self)
         self._workflow_label = QLabel("", self)
@@ -74,10 +75,8 @@ class BatchManagerDialog(QDialog):
         self._progress_label = QLabel("Batch progress: 0%", self)
         self._current_item_label = QLabel("Current item: --", self)
         self._current_stage_label = QLabel("Stage: --", self)
-        self._auto_preset_check = QCheckBox("Smart presets by asset type", self)
         self._auto_export_check = QCheckBox("Save files after processing", self)
-        self._apply_active_edits_check = QCheckBox("Copy current asset edits", self)
-        self._apply_preset_check = QCheckBox("Apply chosen preset", self)
+        self._edit_source_combo = QComboBox(self)
         self._background_combo = QComboBox(self)
         self._batch_preset_combo = QComboBox(self)
         self._export_name_combo = QComboBox(self)
@@ -86,15 +85,11 @@ class BatchManagerDialog(QDialog):
         self._export_dir_field = QLineEdit(self)
         self._browse_export_dir_btn = QPushButton("Browse...", self)
         self.queue_list = QListWidget(self)
-        self._select_all_btn = QPushButton("Select All", self)
-        self._select_failed_btn = QPushButton("Select Failed", self)
-        self._clear_selection_btn = QPushButton("Clear Selection", self)
         self._queue_more_btn = QToolButton(self)
         self._run_options_btn = QToolButton(self)
         self._select_all_action: QAction | None = None
         self._select_failed_action: QAction | None = None
         self._clear_selection_action: QAction | None = None
-        self._auto_preset_action: QAction | None = None
         self._auto_export_action: QAction | None = None
         self._preview_skip_action: QAction | None = None
         self._run_btn = QPushButton("Run Selected", self)
@@ -110,16 +105,17 @@ class BatchManagerDialog(QDialog):
         """Return current run options from dialog controls."""
 
         return BatchDialogOptions(
-            auto_preset=self._auto_preset_check.isChecked(),
+            edit_source=BatchEditSource(str(self._edit_source_combo.currentData())),
             auto_export=self._auto_export_check.isChecked(),
             preview_skip_mode=self._preview_skip_check.isChecked(),
             export_name_template=str(self._export_name_combo.currentData() or "{stem}"),
             avoid_overwrite=self._avoid_overwrite_check.isChecked(),
-            apply_active_edits=self._apply_active_edits_check.isChecked(),
-            apply_selected_preset=self._apply_preset_check.isChecked(),
             selected_preset_name=(
                 str(self._batch_preset_combo.currentData()).strip()
-                if self._batch_preset_combo.currentData()
+                if (
+                    self._edit_source_combo.currentData() == BatchEditSource.CHOSEN_PRESET.value
+                    and self._batch_preset_combo.currentData()
+                )
                 else None
             ),
             background_removal_override=(
@@ -223,11 +219,9 @@ class BatchManagerDialog(QDialog):
 
         self._is_running = bool(is_running)
         self._cancel_btn.setEnabled(self._is_running)
-        self._auto_preset_check.setEnabled(not self._is_running)
         self._auto_export_check.setEnabled(not self._is_running)
         self._preview_skip_check.setEnabled(not self._is_running)
-        self._apply_active_edits_check.setEnabled(not self._is_running)
-        self._apply_preset_check.setEnabled(not self._is_running)
+        self._edit_source_combo.setEnabled(not self._is_running)
         self._background_combo.setEnabled(not self._is_running)
         self.queue_list.setEnabled(not self._is_running)
         self._refresh_idle_controls()
@@ -373,33 +367,38 @@ class BatchManagerDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(
+            SHELL_GEOMETRY.panel_margin,
+            SHELL_GEOMETRY.panel_margin,
+            SHELL_GEOMETRY.panel_margin,
+            SHELL_GEOMETRY.panel_margin,
+        )
+        layout.setSpacing(SHELL_GEOMETRY.gap)
 
         header = QLabel("Batch queue: choose the files to process, apply optional batch rules, then export the results.")
+        header.setObjectName("shellTitle")
         header.setWordWrap(True)
         layout.addWidget(header)
 
         self._workflow_label.setWordWrap(True)
-        self._workflow_label.setStyleSheet("color:#49686d;")
+        self._workflow_label.setObjectName("shellHint")
         self._workflow_label.setText(
-            "Run order: copy current edits, apply chosen preset, apply background override, run smart presets, process, then export."
+            "Choose one edit source. Batch then applies the optional background override, processes each item, and exports."
         )
         layout.addWidget(self._workflow_label)
 
         queue_box = QGroupBox("Queue Selection", self)
         queue_layout = QVBoxLayout(queue_box)
-        queue_layout.setContentsMargins(10, 12, 10, 10)
-        queue_layout.setSpacing(8)
+        queue_layout.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            12,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+        )
+        queue_layout.setSpacing(SHELL_GEOMETRY.gap)
 
         selection_row = QHBoxLayout()
         selection_row.addWidget(QLabel("Selected queue items will be processed.", self))
-        self._select_all_btn.clicked.connect(self.select_all_items)
-        self._select_all_btn.hide()
-        self._select_failed_btn.clicked.connect(self.select_failed_items)
-        self._select_failed_btn.hide()
-        self._clear_selection_btn.clicked.connect(self.clear_selection)
-        self._clear_selection_btn.hide()
         selection_row.addStretch(1)
 
         queue_menu = QMenu(self._queue_more_btn)
@@ -422,61 +421,54 @@ class BatchManagerDialog(QDialog):
 
         self.queue_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.queue_list.itemSelectionChanged.connect(self._on_selection_changed)
-        self.queue_list.setStyleSheet(
-            "QListWidget { border:1px solid #b9ced1; background:#ffffff; }"
-            "QListWidget::item { padding:2px 4px; }"
-            "QListWidget::item:selected { background:#d8ece9; color:#0f3338; }"
-            "QListWidget::item:selected:active { background:#b9ced1; color:#0f3338; }"
-            "QListWidget::item:focus { outline:none; }"
-        )
+        self.queue_list.setObjectName("batchQueueList")
         queue_layout.addWidget(self.queue_list, 1)
         layout.addWidget(queue_box, 1)
 
         status_box = QGroupBox("Run Status", self)
         status_layout = QVBoxLayout(status_box)
-        status_layout.setContentsMargins(10, 12, 10, 10)
-        status_layout.setSpacing(8)
+        status_layout.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            12,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+        )
+        status_layout.setSpacing(SHELL_GEOMETRY.gap)
 
+        self._progress.setObjectName("batchProgressBar")
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.setTextVisible(False)
         self._progress.setFixedHeight(16)
-        self._progress.setStyleSheet(
-            "QProgressBar { border:1px solid #b9ced1; border-radius:4px; background:#f2f7f7; }"
-            "QProgressBar::chunk { background:#2ea38f; border-radius:3px; margin:0px; }"
-        )
 
-        self._progress_label.setStyleSheet("color:#37565b;")
+        self._progress_label.setObjectName("batchStatusText")
         self._progress_label.setMinimumWidth(180)
         progress_row = QHBoxLayout()
-        progress_row.setSpacing(8)
+        progress_row.setSpacing(SHELL_GEOMETRY.gap)
         progress_row.addWidget(self._progress, 1)
         progress_row.addWidget(self._progress_label)
         status_layout.addLayout(progress_row)
 
-        self._current_item_label.setStyleSheet("color:#37565b;")
+        self._current_item_label.setObjectName("batchStatusText")
         status_layout.addWidget(self._current_item_label)
 
-        self._current_stage_label.setStyleSheet("color:#37565b;")
+        self._current_stage_label.setObjectName("batchStatusText")
         status_layout.addWidget(self._current_stage_label)
 
-        self._summary_label.setStyleSheet("color:#3f5f64;")
+        self._summary_label.setObjectName("batchStatusText")
         self._summary_label.setText("0 item(s) in batch queue")
         status_layout.addWidget(self._summary_label)
 
         self._details_label.setWordWrap(True)
-        self._details_label.setStyleSheet("color:#7a4f20;")
+        self._details_label.setObjectName("batchWarningText")
         self._details_label.setText("Latest issue: none")
         status_layout.addWidget(self._details_label)
         layout.addWidget(status_box)
 
-        self._auto_preset_check.setChecked(True)
         self._auto_export_check.setChecked(True)
         self._preview_skip_check.setChecked(True)
-        self._auto_preset_check.setToolTip("Auto-pick safe batch presets from the asset type, tags, and format.")
         self._auto_export_check.setToolTip("Save processed files to the selected export folder.")
         self._preview_skip_check.setToolTip("Skip extra planning UI steps for a faster queue run.")
-        self._auto_preset_check.hide()
         self._auto_export_check.hide()
         self._preview_skip_check.hide()
 
@@ -485,11 +477,6 @@ class BatchManagerDialog(QDialog):
         rules_header.addStretch(1)
 
         options_menu = QMenu(self._run_options_btn)
-        self._auto_preset_action = self._option_action(
-            self._auto_preset_check,
-            "Smart presets by asset type",
-            "Auto-pick safe batch presets from the asset type, tags, and format.",
-        )
         self._auto_export_action = self._option_action(
             self._auto_export_check,
             "Export after processing",
@@ -500,7 +487,6 @@ class BatchManagerDialog(QDialog):
             "Fast run",
             "Skip extra planning UI steps for a faster queue run.",
         )
-        options_menu.addAction(self._auto_preset_action)
         options_menu.addAction(self._auto_export_action)
         options_menu.addAction(self._preview_skip_action)
         self._run_options_btn.setText("Options")
@@ -510,17 +496,17 @@ class BatchManagerDialog(QDialog):
         rules_header.addWidget(self._run_options_btn)
 
         apply_row = QHBoxLayout()
-        self._apply_active_edits_check.setChecked(False)
-        self._apply_preset_check.setChecked(False)
-        self._apply_active_edits_check.setToolTip("Copy the active asset's edit settings and queued heavy jobs onto the batch clones.")
-        self._apply_preset_check.setToolTip("Apply one chosen preset to all compatible selected items before the batch run starts.")
-        apply_row.addWidget(self._apply_active_edits_check)
-        apply_row.addWidget(self._apply_preset_check)
-        apply_row.addWidget(QLabel("Preset:", self))
+        apply_row.addWidget(QLabel("Edit source:", self))
+        self._edit_source_combo.addItem("Keep each asset's controls", BatchEditSource.KEEP_EACH.value)
+        self._edit_source_combo.addItem("Apply one preset", BatchEditSource.CHOSEN_PRESET.value)
+        self._edit_source_combo.addItem("Copy active asset controls", BatchEditSource.COPY_ACTIVE.value)
+        self._edit_source_combo.addItem("Smart match each asset", BatchEditSource.SMART_MATCH.value)
+        self._edit_source_combo.setToolTip("Choose exactly one source of control settings for this run.")
+        apply_row.addWidget(self._edit_source_combo, 1)
         self._batch_preset_combo.clear()
         self._batch_preset_combo.addItem("Choose preset...", None)
         self._batch_preset_combo.setMinimumWidth(220)
-        self._batch_preset_combo.setToolTip("Only compatible items will receive the chosen preset.")
+        self._batch_preset_combo.setToolTip("The chosen preset starts from each asset's own detected controls.")
         apply_row.addWidget(self._batch_preset_combo, 1)
         apply_row.addStretch(1)
 
@@ -538,8 +524,13 @@ class BatchManagerDialog(QDialog):
 
         rules_box = QGroupBox("Batch Rules", self)
         rules_layout = QVBoxLayout(rules_box)
-        rules_layout.setContentsMargins(10, 12, 10, 10)
-        rules_layout.setSpacing(8)
+        rules_layout.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            12,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+        )
+        rules_layout.setSpacing(SHELL_GEOMETRY.gap)
         rules_layout.addLayout(rules_header)
         rules_layout.addLayout(apply_row)
         rules_layout.addLayout(cutout_row)
@@ -569,8 +560,13 @@ class BatchManagerDialog(QDialog):
 
         export_box = QGroupBox("Export Output", self)
         export_layout = QVBoxLayout(export_box)
-        export_layout.setContentsMargins(10, 12, 10, 10)
-        export_layout.setSpacing(8)
+        export_layout.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            12,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+        )
+        export_layout.setSpacing(SHELL_GEOMETRY.gap)
         export_layout.addLayout(naming_row)
         export_layout.addLayout(folder_row)
 
@@ -584,11 +580,12 @@ class BatchManagerDialog(QDialog):
         layout.addLayout(options_row)
 
         self._auto_export_check.toggled.connect(self._on_auto_export_toggled)
-        self._apply_preset_check.toggled.connect(self._on_apply_preset_toggled)
+        self._edit_source_combo.currentIndexChanged.connect(self._on_edit_source_changed)
         self._batch_preset_combo.currentIndexChanged.connect(self._on_batch_preset_changed)
 
         actions = QHBoxLayout()
         actions.addStretch(1)
+        self._run_btn.setObjectName("shellPrimaryAction")
         self._run_btn.clicked.connect(self._emit_run_requested)
         actions.addWidget(self._run_btn)
         self._cancel_btn.clicked.connect(self._emit_cancel_requested)
@@ -605,8 +602,7 @@ class BatchManagerDialog(QDialog):
         _ = checked
         self._refresh_idle_controls()
 
-    def _on_apply_preset_toggled(self, checked: bool) -> None:
-        _ = checked
+    def _on_edit_source_changed(self, _index: int) -> None:
         self._refresh_idle_controls()
 
     def _on_batch_preset_changed(self, _index: int) -> None:
@@ -675,13 +671,11 @@ class BatchManagerDialog(QDialog):
         has_selection = selected > 0
         has_failed = bool(self._queue_state.failed_asset_ids())
 
+        edit_source = str(self._edit_source_combo.currentData() or BatchEditSource.KEEP_EACH.value)
         preset_selected = bool(self._batch_preset_combo.currentData())
-        preset_ready = (not self._apply_preset_check.isChecked()) or preset_selected
+        preset_ready = edit_source != BatchEditSource.CHOSEN_PRESET.value or preset_selected
 
         self._run_btn.setEnabled(is_idle and has_selection and preset_ready)
-        self._select_all_btn.setEnabled(is_idle and has_rows)
-        self._select_failed_btn.setEnabled(is_idle and has_failed)
-        self._clear_selection_btn.setEnabled(is_idle and has_rows)
         if self._select_all_action is not None:
             self._select_all_action.setEnabled(is_idle and has_rows)
         if self._select_failed_action is not None:
@@ -690,13 +684,11 @@ class BatchManagerDialog(QDialog):
             self._clear_selection_action.setEnabled(is_idle and has_rows)
         self._queue_more_btn.setEnabled(is_idle and has_rows)
         self._run_options_btn.setEnabled(is_idle and has_selection)
-        if self._auto_preset_action is not None:
-            self._auto_preset_action.setEnabled(is_idle and has_selection)
         if self._auto_export_action is not None:
             self._auto_export_action.setEnabled(is_idle and has_selection)
         if self._preview_skip_action is not None:
             self._preview_skip_action.setEnabled(is_idle and has_selection)
-        self._apply_active_edits_check.setEnabled(is_idle and has_selection)
+        self._edit_source_combo.setEnabled(is_idle and has_selection)
 
         allow_export_controls = is_idle and self._auto_export_check.isChecked()
         self._export_name_combo.setEnabled(allow_export_controls)
@@ -705,9 +697,13 @@ class BatchManagerDialog(QDialog):
         self._browse_export_dir_btn.setEnabled(allow_export_controls)
 
         has_presets = self._batch_preset_combo.count() > 1
-        allow_preset_controls = is_idle and has_selection and has_presets
-        self._apply_preset_check.setEnabled(allow_preset_controls)
-        self._batch_preset_combo.setEnabled(allow_preset_controls and self._apply_preset_check.isChecked())
+        allow_preset_controls = (
+            is_idle
+            and has_selection
+            and has_presets
+            and edit_source == BatchEditSource.CHOSEN_PRESET.value
+        )
+        self._batch_preset_combo.setEnabled(allow_preset_controls)
         self._background_combo.setEnabled(is_idle and has_selection)
 
     def _set_progress(self, percent: int, *, total: int | None = None, processed: int | None = None) -> None:

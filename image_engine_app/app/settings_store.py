@@ -98,7 +98,7 @@ def save_path_preferences(
 
 DEFAULT_WEB_SOURCES_OPTIONS: dict[str, bool] = {
     "show_likely": False,
-    "auto_sort": False,
+    "auto_sort": True,
     "skip_duplicates": True,
     "allow_zip": True,
 }
@@ -155,6 +155,7 @@ def load_web_sources_settings(paths: AppPaths) -> dict[str, Any]:
 
     last_raw = block.get("last_selected")
     last_selected = last_raw if isinstance(last_raw, dict) else {}
+    selected_page_id = last_selected.get("page_id") or last_selected.get("area_id")
 
     options_raw = block.get("options")
     options = dict(DEFAULT_WEB_SOURCES_OPTIONS)
@@ -167,7 +168,7 @@ def load_web_sources_settings(paths: AppPaths) -> dict[str, Any]:
         "registry": registry,
         "last_selected": {
             "website_id": (str(last_selected.get("website_id")) if last_selected.get("website_id") else None),
-            "area_id": (str(last_selected.get("area_id")) if last_selected.get("area_id") else None),
+            "page_id": str(selected_page_id) if selected_page_id else None,
         },
         "options": options,
     }
@@ -190,8 +191,8 @@ def save_web_sources_settings(
     if isinstance(last_selected, dict):
         if "website_id" in last_selected:
             next_last["website_id"] = str(last_selected["website_id"]) if last_selected["website_id"] else None
-        if "area_id" in last_selected:
-            next_last["area_id"] = str(last_selected["area_id"]) if last_selected["area_id"] else None
+        if "page_id" in last_selected:
+            next_last["page_id"] = str(last_selected["page_id"]) if last_selected["page_id"] else None
 
     next_options = dict(DEFAULT_WEB_SOURCES_OPTIONS)
     next_options.update(current["options"] if isinstance(current.get("options"), dict) else {})

@@ -1,57 +1,44 @@
-"""Lightweight Qt state bindings for engine state -> UI integration (Prompt 16)."""
+"""Qt signals and passive state shared by the Sprite Factory workspace."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
 from image_engine_app.engine.models import (
-    ApplyTarget,
     AssetRecord,
     BackgroundRemovalMode,
-    EditMode,
     ExportProfile,
     SessionState,
     normalize_background_removal_mode,
-    normalize_edit_mode,
 )
 
 
 @dataclass(frozen=True)
 class HeavyQueueState:
-    """UI-facing heavy queue state used for queued/running badge feedback."""
+    """UI-facing heavy queue state used for queued/running feedback."""
 
     queued_count: int = 0
     running_count: int = 0
 
 
 class EngineUIState(QObject):
-    """
-    Lightweight UI binding store.
-
-    This intentionally does not implement the processing engine. It tracks active session/asset,
-    UI selections, and emits signals so the Prompt 16 UI shell can stay decoupled from later engine
-    wiring.
-    """
+    """Publish UI state and user intent without mutating engine models."""
 
     session_changed = Signal(object)
     active_asset_changed = Signal(object)
-    mode_changed = Signal(str)
-    apply_target_changed = Signal(str)
-    sync_changed = Signal(bool)
-    auto_apply_light_changed = Signal(bool)
-    background_removal_mode_changed = Signal(str)
     heavy_queue_state_changed = Signal(object)
     export_prediction_changed = Signal(str)
-    export_profile_changed = Signal(str)
     status_message_changed = Signal(str)
+
+    edit_setting_requested = Signal(str, str, object)
+    edit_settings_reset_requested = Signal(object)
+    output_size_requested = Signal(str)
+    export_profile_requested = Signal(str)
     apply_requested = Signal()
-    light_preview_requested = Signal()
+    final_preview_requested = Signal()
     export_requested = Signal()
-    undo_requested = Signal()
-    redo_requested = Signal()
     global_reset_requested = Signal()
     reset_view_requested = Signal()
 
@@ -85,63 +72,27 @@ class EngineUIState(QObject):
     def set_active_asset(self, asset: AssetRecord | None) -> None:
         self._active_asset = asset
         self.active_asset_changed.emit(asset)
-        if asset is None:
-            self.mode_changed.emit(EditMode.ADVANCED.value)
-            self.apply_target_changed.emit(ApplyTarget.BOTH.value)
-            self.sync_changed.emit(True)
-            self.auto_apply_light_changed.emit(True)
-            self.background_removal_mode_changed.emit(BackgroundRemovalMode.OFF.value)
-            self.set_heavy_queue_counts(queued_count=0, running_count=0)
-            return
+        jobs = asset.edit_state.queued_heavy_jobs if asset is not None else ()
+        queued = sum(1 for job in jobs if str(getattr(getattr(job, "status", None), "value", "")) == "queued")
+        running = sum(1 for job in jobs if str(getattr(getattr(job, "status", None), "value", "")) == "running")
+        self.set_heavy_queue_counts(queued_count=queued, running_count=running)
 
-        self._emit_asset_mode_and_controls()
-        self.set_heavy_queue_counts(queued_count=len(asset.edit_state.queued_heavy_jobs), running_count=0)
+    def request_setting_change(self, group_name: str, field_name: str, value: object) -> None:
+        self.edit_setting_requested.emit(str(group_name), str(field_name), value)
 
-    def set_mode(self, mode: EditMode | str) -> None:
-        asset = self._active_asset
-        mode_enum = normalize_edit_mode(mode)
-        if asset is not None:
-            asset.edit_state.mode = mode_enum
-        self.mode_changed.emit(mode_enum.value)
+    def request_settings_reset(self, field_paths: object) -> None:
+        self.edit_settings_reset_requested.emit(field_paths)
 
-    def set_apply_target(self, target: ApplyTarget | str) -> None:
-        asset = self._active_asset
-        target_enum = target if isinstance(target, ApplyTarget) else ApplyTarget(str(target))
-        if asset is not None:
-            asset.edit_state.apply_target = target_enum
-        self.apply_target_changed.emit(target_enum.value)
-
-    def set_sync_current_final(self, enabled: bool) -> None:
-        asset = self._active_asset
-        if asset is not None:
-            asset.edit_state.sync_current_final = bool(enabled)
-        self.sync_changed.emit(bool(enabled))
-
-    def set_auto_apply_light(self, enabled: bool) -> None:
-        asset = self._active_asset
-        if asset is not None:
-            asset.edit_state.auto_apply_light = bool(enabled)
-        self.auto_apply_light_changed.emit(bool(enabled))
-
-    def set_background_removal_mode(self, mode: BackgroundRemovalMode | str) -> None:
-        asset = self._active_asset
+    def request_background_removal_mode(self, mode: BackgroundRemovalMode | str) -> None:
         mode_value = normalize_background_removal_mode(mode).value
-        if asset is not None:
-            alpha_settings = asset.edit_state.settings.alpha
-            alpha_settings.background_removal_mode = mode_value
-            alpha_settings.remove_white_bg = (mode_value == BackgroundRemovalMode.WHITE.value)
-        self.background_removal_mode_changed.emit(mode_value)
-        if asset is not None:
-            self.request_light_preview()
+        self.request_setting_change("alpha", "background_removal_mode", mode_value)
 
-    def set_export_profile(self, profile: ExportProfile | str) -> None:
-        asset = self._active_asset
-        if asset is None:
-            return
-        profile_enum = profile if isinstance(profile, ExportProfile) else ExportProfile(str(profile))
-        asset.edit_state.settings.export.export_profile = profile_enum
-        self.export_profile_changed.emit(profile_enum.value)
-        self.status_message_changed.emit(f"Export profile set to {profile_enum.value}")
+    def request_output_size(self, choice_key: str) -> None:
+        self.output_size_requested.emit(str(choice_key))
+
+    def request_export_profile(self, profile: ExportProfile | str) -> None:
+        profile_value = profile.value if isinstance(profile, ExportProfile) else ExportProfile(str(profile)).value
+        self.export_profile_requested.emit(profile_value)
 
     def set_export_prediction_text(self, text: str) -> None:
         self._export_prediction_text = text
@@ -153,46 +104,15 @@ class EngineUIState(QObject):
 
     def request_apply(self) -> None:
         self.apply_requested.emit()
-        self.status_message_changed.emit("Apply requested.")
 
-    def request_light_preview(self) -> None:
-        """Request a light-only preview refresh without running heavy queues."""
-        self.light_preview_requested.emit()
+    def request_final_preview(self) -> None:
+        self.final_preview_requested.emit()
 
     def request_export(self) -> None:
         self.export_requested.emit()
-        self.status_message_changed.emit("Export requested.")
-
-    def request_undo(self) -> None:
-        self.undo_requested.emit()
-        self.status_message_changed.emit("Undo requested.")
-
-    def request_redo(self) -> None:
-        self.redo_requested.emit()
-        self.status_message_changed.emit("Redo requested.")
 
     def request_global_reset(self) -> None:
         self.global_reset_requested.emit()
-        self.status_message_changed.emit("Global reset requested.")
 
     def request_reset_view(self) -> None:
         self.reset_view_requested.emit()
-        self.status_message_changed.emit("Reset view requested.")
-
-    def _emit_asset_mode_and_controls(self) -> None:
-        asset = self._active_asset
-        if asset is None:
-            return
-        self.mode_changed.emit(asset.edit_state.mode.value)
-        self.apply_target_changed.emit(asset.edit_state.apply_target.value)
-        self.sync_changed.emit(asset.edit_state.sync_current_final)
-        self.auto_apply_light_changed.emit(asset.edit_state.auto_apply_light)
-        mode_value = normalize_background_removal_mode(
-            getattr(asset.edit_state.settings.alpha, "background_removal_mode", None),
-            remove_white_bg=bool(getattr(asset.edit_state.settings.alpha, "remove_white_bg", False)),
-        ).value
-        self.background_removal_mode_changed.emit(mode_value)
-
-
-
-

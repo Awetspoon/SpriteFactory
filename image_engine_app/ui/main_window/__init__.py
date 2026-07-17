@@ -6,10 +6,9 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 __all__ = [
-    "ApplyCoordinator",
+    "EditCoordinator",
     "BatchCoordinator",
     "ControlStrip",
-    "EncodingCoordinator",
     "ExportBar",
     "ExportCoordinator",
     "ImageEngineMainWindow",
@@ -25,11 +24,10 @@ __all__ = [
 ]
 
 _EXPORT_MODULES = {
-    "ApplyCoordinator": "apply_coordinator",
+    "EditCoordinator": "edit_coordinator",
     "WorkspaceAssetTabs": "asset_tabs",
     "BatchCoordinator": "batch_coordinator",
     "ControlStrip": "control_strip",
-    "EncodingCoordinator": "encoding_coordinator",
     "ExportBar": "export_bar",
     "ExportCoordinator": "export_coordinator",
     "ImageEngineMainWindow": "main_window",
@@ -55,11 +53,10 @@ def __getattr__(name: str) -> object:
 
 
 if TYPE_CHECKING:
-    from .apply_coordinator import ApplyCoordinator
+    from .edit_coordinator import EditCoordinator
     from .asset_tabs import WorkspaceAssetTabs
     from .batch_coordinator import BatchCoordinator
     from .control_strip import ControlStrip
-    from .encoding_coordinator import EncodingCoordinator
     from .export_bar import ExportBar
     from .export_coordinator import ExportCoordinator
     from .local_import_coordinator import LocalImportCoordinator

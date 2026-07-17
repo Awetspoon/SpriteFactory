@@ -14,15 +14,20 @@ from urllib.error import URLError
 
 from image_engine_app.app.paths import ensure_app_paths  # noqa: E402
 from image_engine_app.app.ui_controller import ImageEngineUIController  # noqa: E402
-from image_engine_app.app.web_sources_models import Confidence, ImportTarget, SmartOptions, WebItem  # noqa: E402
+from image_engine_app.app.web_sources_models import (  # noqa: E402
+    Confidence,
+    ImportTarget,
+    SmartOptions,
+    WebDownloadRequest,
+    WebItem,
+    WebScanRequest,
+)
 from image_engine_app.app.preset_store import PresetStore  # noqa: E402
-from image_engine_app.engine.analyze.recommend import RecommendationInput, build_recommendations  # noqa: E402
 from image_engine_app.engine.ingest.webpage_scan import WebpageScanCancelledError, WebpageScanFilters  # noqa: E402
+from image_engine_app.engine.ingest.import_result import ImportResult  # noqa: E402
 from image_engine_app.engine.models import (  # noqa: E402
-    ApplyTarget,
     AssetFormat,
     AssetRecord,
-    AnalysisSummary,
     Capabilities,
     EditMode,
     ExportProfile,
@@ -34,6 +39,7 @@ from image_engine_app.engine.models import (  # noqa: E402
     ScaleMethod,
 )
 from image_engine_app.engine.process.presets_apply import PresetApplyError  # noqa: E402
+from image_engine_app.engine.process.edit_baseline import capture_detected_settings  # noqa: E402
 
 
 def _fake_png(width: int, height: int, *, payload: bytes = b"DATA") -> bytes:
@@ -110,9 +116,14 @@ def _asset(*, mode: EditMode = EditMode.ADVANCED) -> AssetRecord:
         dimensions_final=(256, 256),
     )
     asset.edit_state.mode = mode
-    asset.edit_state.apply_target = ApplyTarget.BOTH
-    asset.edit_state.sync_current_final = True
     asset.edit_state.settings.export.export_profile = ExportProfile.APP_ASSET
+    return asset
+
+
+def _primary_asset(result: ImportResult) -> AssetRecord:
+    asset = result.primary_asset
+    if asset is None:
+        raise AssertionError(f"Import produced no asset: {result.failed}")
     return asset
 
 
@@ -182,13 +193,16 @@ class UIControllerTests(unittest.TestCase):
                 "https://example.com/sprite.png",
                 opener=lambda request, timeout=0: _FakeResponse(png_bytes, "image/png"),
             )
-            self.assertEqual(url_summary.asset.source_type, SourceType.URL)
-            self.assertEqual(url_summary.asset.format, AssetFormat.PNG)
-            self.assertEqual(url_summary.asset.dimensions_original, (32, 16))
-            self.assertEqual(url_summary.preview_detected_format, "png")
-            self.assertEqual(url_summary.preview_dimensions, (32, 16))
-            self.assertIsNotNone(url_summary.preview_bytes_sampled)
-            self.assertTrue(Path(url_summary.asset.cache_path).exists())
+            imported_asset = _primary_asset(url_summary)
+            imported_entry = url_summary.primary_entry
+            self.assertIsNotNone(imported_entry)
+            self.assertEqual(imported_asset.source_type, SourceType.URL)
+            self.assertEqual(imported_asset.format, AssetFormat.PNG)
+            self.assertEqual(imported_asset.dimensions_original, (32, 16))
+            self.assertEqual(imported_entry.preview_detected_format, "png")
+            self.assertEqual(imported_entry.preview_dimensions, (32, 16))
+            self.assertIsNotNone(imported_entry.preview_bytes_sampled)
+            self.assertTrue(Path(imported_asset.cache_path).exists())
 
             html = (
                 "<html><body>"
@@ -232,10 +246,11 @@ class UIControllerTests(unittest.TestCase):
                     stream_preview=False,
                 )
 
-            self.assertEqual(summary.asset.dimensions_original, (96, 64))
-            self.assertEqual(summary.asset.dimensions_current, (96, 64))
-            self.assertEqual(summary.asset.dimensions_final, (96, 64))
-            self.assertEqual(summary.dimensions, (96, 64))
+            imported_asset = _primary_asset(summary)
+            self.assertEqual(imported_asset.dimensions_original, (96, 64))
+            self.assertEqual(imported_asset.dimensions_current, (96, 64))
+            self.assertEqual(imported_asset.dimensions_final, (96, 64))
+            self.assertEqual(summary.primary_entry.dimensions, (96, 64))
 
 
     def test_import_url_source_falls_back_when_stream_preview_fails(self) -> None:
@@ -258,10 +273,10 @@ class UIControllerTests(unittest.TestCase):
                 opener=opener,
             )
 
-            self.assertEqual(summary.asset.format, AssetFormat.PNG)
-            self.assertEqual(summary.dimensions, (20, 10))
-            self.assertIsNone(summary.preview_detected_format)
-            self.assertIsNone(summary.preview_dimensions)
+            self.assertEqual(_primary_asset(summary).format, AssetFormat.PNG)
+            self.assertEqual(summary.primary_entry.dimensions, (20, 10))
+            self.assertIsNone(summary.primary_entry.preview_detected_format)
+            self.assertIsNone(summary.primary_entry.preview_dimensions)
 
     def test_import_url_source_can_disable_stream_preview(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -282,12 +297,12 @@ class UIControllerTests(unittest.TestCase):
             )
 
             self.assertEqual(call_count["value"], 1)
-            self.assertEqual(summary.asset.format, AssetFormat.PNG)
-            self.assertEqual(summary.dimensions, (24, 12))
-            self.assertIsNone(summary.preview_detected_format)
-            self.assertIsNone(summary.preview_dimensions)
-            self.assertIsNone(summary.preview_bytes_sampled)
-            self.assertIsNone(summary.preview_truncated)
+            self.assertEqual(_primary_asset(summary).format, AssetFormat.PNG)
+            self.assertEqual(summary.primary_entry.dimensions, (24, 12))
+            self.assertIsNone(summary.primary_entry.preview_detected_format)
+            self.assertIsNone(summary.primary_entry.preview_dimensions)
+            self.assertIsNone(summary.primary_entry.preview_bytes_sampled)
+            self.assertIsNone(summary.primary_entry.preview_truncated)
 
     def test_import_url_source_sets_gif_animated_capability(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -301,9 +316,70 @@ class UIControllerTests(unittest.TestCase):
                 stream_preview=False,
             )
 
-            self.assertEqual(summary.asset.format, AssetFormat.GIF)
-            self.assertTrue(summary.asset.capabilities.is_animated)
-            self.assertEqual(summary.asset.dimensions_original, (12, 10))
+            imported_asset = _primary_asset(summary)
+            self.assertEqual(imported_asset.format, AssetFormat.GIF)
+            self.assertTrue(imported_asset.capabilities.is_animated)
+            self.assertEqual(imported_asset.dimensions_original, (12, 10))
+
+    @unittest.skipUnless(_pillow_available(), "Pillow required for source-baseline import test.")
+    def test_imported_image_starts_with_final_using_the_exact_source(self) -> None:
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = ensure_app_paths(base_dir=temp_dir)
+            controller = ImageEngineUIController(app_paths=paths)
+            source = Path(temp_dir) / "source.png"
+            Image.new("RGBA", (28, 18), (20, 80, 180, 140)).save(
+                source,
+                format="PNG",
+                dpi=(144, 144),
+            )
+
+            asset = _primary_asset(controller.import_local_sources([source]))
+            result = controller.ensure_asset_final(asset)
+
+            self.assertFalse(result.preview_attempted)
+            self.assertIsNone(asset.derived_final_path)
+            self.assertEqual((28, 18), asset.dimensions_current)
+            self.assertEqual((28, 18), asset.dimensions_final)
+            self.assertEqual(144, asset.edit_state.settings.pixel.dpi)
+            self.assertEqual(asset.detected_settings, asset.edit_state.settings)
+
+    @unittest.skipUnless(_pillow_available(), "Pillow required for GIF source-baseline test.")
+    def test_imported_gif_edit_preserves_detected_finite_loop_count(self) -> None:
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = ensure_app_paths(base_dir=temp_dir)
+            controller = ImageEngineUIController(app_paths=paths)
+            source = Path(temp_dir) / "finite-loop.gif"
+            frames = [
+                Image.new("RGB", (14, 12), (220, 40, 40)),
+                Image.new("RGB", (14, 12), (40, 220, 40)),
+            ]
+            frames[0].save(
+                source,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=[80, 120],
+                loop=2,
+            )
+
+            asset = _primary_asset(controller.import_local_sources([source]))
+            self.assertEqual(2, asset.edit_state.settings.gif.loop_count)
+
+            result = controller.update_asset_setting(
+                asset,
+                "color",
+                "brightness",
+                0.1,
+            )
+
+            self.assertTrue(result.preview_rendered)
+            with Image.open(asset.derived_final_path) as rendered:
+                self.assertEqual(2, rendered.info.get("loop"))
+                self.assertGreater(int(getattr(rendered, "n_frames", 1)), 1)
 
     def test_import_url_source_falls_back_from_webpage_to_first_image(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -334,14 +410,15 @@ class UIControllerTests(unittest.TestCase):
                 allow_webpage_fallback=True,
             )
 
-            self.assertEqual(summary.asset.source_uri, "https://example.com/sprite.png")
-            self.assertEqual(summary.asset.format, AssetFormat.PNG)
-            self.assertEqual(summary.asset.dimensions_original, (14, 9))
-            self.assertIn("url_fallback:webpage_first_image", summary.asset.classification_tags)
+            imported_asset = _primary_asset(summary)
+            self.assertEqual(imported_asset.source_uri, "https://example.com/sprite.png")
+            self.assertEqual(imported_asset.format, AssetFormat.PNG)
+            self.assertEqual(imported_asset.dimensions_original, (14, 9))
+            self.assertIn("url_fallback:webpage_first_image", imported_asset.classification_tags)
 
-    def test_load_web_sources_registry_sanitizes_missing_ids(self) -> None:
+    def test_replace_web_sources_registry_sanitizes_missing_ids(self) -> None:
         controller = ImageEngineUIController()
-        registry = controller.load_web_sources_registry(
+        mutation = controller.replace_web_sources_registry(
             [
                 {
                     "name": "Demo Site",
@@ -350,11 +427,11 @@ class UIControllerTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(len(registry), 1)
-        self.assertEqual(registry[0]["id"], "demo_site")
-        self.assertEqual(registry[0]["areas"][0]["id"], "main_area")
+        self.assertEqual(len(mutation.state.websites), 1)
+        self.assertEqual(mutation.state.websites[0].id, "demo_site")
+        self.assertEqual(mutation.state.websites[0].pages[0].id, "main_area")
 
-    def test_scan_web_sources_area_filters_likely_and_detects_zip_links(self) -> None:
+    def test_web_sources_scan_filters_likely_and_detects_zip_links(self) -> None:
         controller = ImageEngineUIController()
         html = (
             "<html><body>"
@@ -368,25 +445,33 @@ class UIControllerTests(unittest.TestCase):
             _ = (request, timeout)
             return _FakeResponse(html, "text/html; charset=utf-8")
 
-        strict = controller.scan_web_sources_area(
-            "https://example.com/gallery",
-            show_likely=False,
+        strict = controller.run_web_sources_scan(
+            controller.plan_web_sources_scan(
+                WebScanRequest(
+                    urls=("https://example.com/gallery",),
+                    smart=SmartOptions(show_likely=False),
+                )
+            ),
             opener=opener,
-        )
+        ).latest
         strict_urls = {item.url for item in strict.items}
         self.assertIn("https://cdn.example.com/a.png", strict_urls)
         self.assertIn("https://example.com/pack.zip", strict_urls)
         self.assertNotIn("https://cdn.example.com/image?id=42", strict_urls)
 
-        likely = controller.scan_web_sources_area(
-            "https://example.com/gallery",
-            show_likely=True,
+        likely = controller.run_web_sources_scan(
+            controller.plan_web_sources_scan(
+                WebScanRequest(
+                    urls=("https://example.com/gallery",),
+                    smart=SmartOptions(show_likely=True),
+                )
+            ),
             opener=opener,
-        )
+        ).latest
         likely_urls = {item.url for item in likely.items}
         self.assertIn("https://cdn.example.com/image?id=42", likely_urls)
 
-    def test_scan_web_sources_area_falls_back_to_likely_when_no_direct_links(self) -> None:
+    def test_web_sources_scan_falls_back_to_likely_when_no_direct_links(self) -> None:
         controller = ImageEngineUIController()
         html = "<html><body><img src='https://cdn.example.com/image?id=42'></body></html>".encode("utf-8")
 
@@ -394,43 +479,53 @@ class UIControllerTests(unittest.TestCase):
             _ = (request, timeout)
             return _FakeResponse(html, "text/html; charset=utf-8")
 
-        results = controller.scan_web_sources_area(
-            "https://example.com/gallery",
-            show_likely=False,
+        results = controller.run_web_sources_scan(
+            controller.plan_web_sources_scan(
+                WebScanRequest(
+                    urls=("https://example.com/gallery",),
+                    smart=SmartOptions(show_likely=False),
+                )
+            ),
             opener=opener,
-        )
+        ).latest
 
         self.assertEqual(1, len(results.items))
         self.assertEqual("https://cdn.example.com/image?id=42", results.items[0].url)
         self.assertEqual(Confidence.LIKELY, results.items[0].confidence)
 
-    def test_scan_web_sources_area_accepts_direct_url_without_html_scan(self) -> None:
+    def test_web_sources_scan_accepts_direct_url_without_html_scan(self) -> None:
         controller = ImageEngineUIController()
 
         def opener(request, timeout=0):  # noqa: ANN001
             raise AssertionError(f"HTML scan opener should not run for direct URLs: {request} {timeout}")
 
-        results = controller.scan_web_sources_area(
-            "https://cdn.example.com/sprite.png",
-            show_likely=False,
+        results = controller.run_web_sources_scan(
+            controller.plan_web_sources_scan(
+                WebScanRequest(
+                    urls=("https://cdn.example.com/sprite.png",),
+                    smart=SmartOptions(show_likely=False),
+                )
+            ),
             opener=opener,
-        )
+        ).latest
 
         self.assertEqual(1, len(results.items))
         self.assertEqual("https://cdn.example.com/sprite.png", results.items[0].url)
         self.assertEqual(Confidence.DIRECT, results.items[0].confidence)
 
-    def test_scan_web_sources_area_can_be_cancelled(self) -> None:
+    def test_web_sources_scan_can_be_cancelled(self) -> None:
         controller = ImageEngineUIController()
 
         with self.assertRaises(WebpageScanCancelledError):
-            controller.scan_web_sources_area(
-                "https://example.com/gallery",
+            controller.run_web_sources_scan(
+                controller.plan_web_sources_scan(
+                    WebScanRequest(urls=("https://example.com/gallery",))
+                ),
                 cancel_requested=lambda: True,
                 opener=lambda request, timeout=0: _FakeResponse(b"<html></html>", "text/html; charset=utf-8"),
             )
 
-    def test_download_web_sources_items_supports_png_zip_and_dedupe(self) -> None:
+    def test_web_sources_download_supports_png_zip_and_dedupe(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             controller = ImageEngineUIController(app_paths=paths)
@@ -468,10 +563,13 @@ class UIControllerTests(unittest.TestCase):
 
             progress_events: list[tuple[int, int, str]] = []
 
-            report = controller.download_web_sources_items(
-                items,
-                ImportTarget.NORMAL,
+            request = WebDownloadRequest(
+                items=tuple(items),
+                target=ImportTarget.NORMAL,
                 smart=SmartOptions(show_likely=False, auto_sort=False, skip_duplicates=True, allow_zip=True),
+            )
+            report = controller.download_web_sources(
+                request,
                 opener=opener,
                 progress_callback=lambda done, total, msg: progress_events.append((int(done), int(total), str(msg))),
             )
@@ -483,18 +581,17 @@ class UIControllerTests(unittest.TestCase):
             self.assertTrue(progress_events)
             self.assertEqual(progress_events[-1][0], progress_events[-1][1])
             self.assertIn("Download complete", progress_events[-1][2])
-            report_second = controller.download_web_sources_items(
-                items,
-                ImportTarget.NORMAL,
-                smart=SmartOptions(show_likely=False, auto_sort=False, skip_duplicates=True, allow_zip=True),
+            report_second = controller.download_web_sources(
+                request,
                 opener=opener,
             )
             self.assertEqual(len(report_second.downloaded), 0)
-            self.assertGreaterEqual(len(report_second.skipped), 2)
+            self.assertEqual(("sprite.png",), report_second.reused)
+            self.assertGreaterEqual(len(report_second.skipped), 1)
             cached_names = {asset.original_name for asset in report_second.assets}
             self.assertIn("sprite.png", cached_names)
 
-    def test_download_web_sources_items_auto_sort_splits_gif_by_extension(self) -> None:
+    def test_web_sources_download_auto_sort_splits_gif_by_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             controller = ImageEngineUIController(app_paths=paths)
@@ -526,10 +623,12 @@ class UIControllerTests(unittest.TestCase):
                 ),
             ]
 
-            report = controller.download_web_sources_items(
-                items,
-                ImportTarget.NORMAL,
-                smart=SmartOptions(show_likely=False, auto_sort=True, skip_duplicates=False, allow_zip=True),
+            report = controller.download_web_sources(
+                WebDownloadRequest(
+                    items=tuple(items),
+                    target=ImportTarget.NORMAL,
+                    smart=SmartOptions(show_likely=False, auto_sort=True, skip_duplicates=False, allow_zip=True),
+                ),
                 opener=opener,
             )
 
@@ -558,7 +657,7 @@ class UIControllerTests(unittest.TestCase):
         )
         self.assertEqual(query_name, "charizard mega x shiny.gif")
 
-    def test_download_web_sources_items_skip_duplicates_keeps_distinct_urls_same_name(self) -> None:
+    def test_web_sources_download_skip_duplicates_keeps_distinct_urls_same_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             controller = ImageEngineUIController(app_paths=paths)
@@ -590,10 +689,12 @@ class UIControllerTests(unittest.TestCase):
                 ),
             ]
 
-            report = controller.download_web_sources_items(
-                items,
-                ImportTarget.NORMAL,
-                smart=SmartOptions(show_likely=False, auto_sort=False, skip_duplicates=True, allow_zip=True),
+            report = controller.download_web_sources(
+                WebDownloadRequest(
+                    items=tuple(items),
+                    target=ImportTarget.NORMAL,
+                    smart=SmartOptions(show_likely=False, auto_sort=False, skip_duplicates=True, allow_zip=True),
+                ),
                 opener=opener,
             )
 
@@ -601,7 +702,7 @@ class UIControllerTests(unittest.TestCase):
             self.assertEqual(len(report.assets), 2)
             self.assertEqual(len(report.skipped), 0)
 
-    def test_download_web_sources_items_can_cancel_mid_batch(self) -> None:
+    def test_web_sources_download_can_cancel_mid_batch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             controller = ImageEngineUIController(app_paths=paths)
@@ -640,10 +741,12 @@ class UIControllerTests(unittest.TestCase):
                 if str(message).startswith("Imported:"):
                     cancel_state["requested"] = True
 
-            report = controller.download_web_sources_items(
-                items,
-                ImportTarget.NORMAL,
-                smart=SmartOptions(show_likely=False, auto_sort=False, skip_duplicates=False, allow_zip=True),
+            report = controller.download_web_sources(
+                WebDownloadRequest(
+                    items=tuple(items),
+                    target=ImportTarget.NORMAL,
+                    smart=SmartOptions(show_likely=False, auto_sort=False, skip_duplicates=False, allow_zip=True),
+                ),
                 opener=opener,
                 progress_callback=progress_callback,
                 cancel_requested=lambda: bool(cancel_state["requested"]),
@@ -692,7 +795,7 @@ class UIControllerTests(unittest.TestCase):
         names = [entry.name for entry in entries]
 
         self.assertIn("GIF Safe Cleanup", names)
-        self.assertIn("GIF Outline Safe", names)
+        self.assertIn("GIF Crisp 2x", names)
         self.assertNotIn("Sprite Sheet Prep", names)
         self.assertNotIn("Photo Recover", names)
         self.assertTrue(any("GIF" in entry.label for entry in entries if entry.name == "GIF Safe Cleanup"))
@@ -708,40 +811,13 @@ class UIControllerTests(unittest.TestCase):
         self.assertIn("TIFF", entries["TIFF Print Clean"].label)
         self.assertIn("WEBP", entries["WEBP Photo Finish"].label)
 
-    def test_detected_baseline_preset_skips_incompatible_animated_gif_suggestion(self) -> None:
+    def test_restore_asset_detected_settings_discards_only_custom_edits(self) -> None:
         controller = ImageEngineUIController()
         asset = _asset(mode=EditMode.ADVANCED)
-        asset.original_name = "battle_anim.gif"
-        asset.format = AssetFormat.GIF
-        asset.capabilities = Capabilities(has_alpha=True, is_animated=True, is_sheet=False, is_ico_bundle=False)
-        asset.classification_tags = ["animation", "pixel_art"]
-        asset.recommendations = build_recommendations(
-            RecommendationInput(
-                file_format=AssetFormat.GIF,
-                classification_tags=["animation", "pixel_art"],
-                analysis=AnalysisSummary(
-                    blur_score=0.2,
-                    noise_score=0.35,
-                    compression_score=0.3,
-                    edge_integrity_score=0.7,
-                    resolution_need_score=0.8,
-                    gif_palette_stress=0.4,
-                    warnings=[],
-                ),
-                has_alpha=True,
-                is_animated=True,
-            )
-        )
 
-        controller._apply_detected_baseline_preset(asset)
-
-        self.assertEqual(asset.edit_state.settings.export.format, ExportFormat.GIF)
-        self.assertEqual(asset.edit_state.settings.export.palette_limit, 256)
-        self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
-
-    def test_reset_asset_settings_to_defaults_clears_custom_edits(self) -> None:
-        controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.ADVANCED)
+        asset.edit_state.settings.cleanup.denoise = 0.18
+        asset.edit_state.settings.detail.clarity = 0.12
+        capture_detected_settings(asset)
 
         asset.edit_state.settings.pixel.resize_percent = 175.0
         asset.edit_state.settings.detail.clarity = 0.7
@@ -752,15 +828,49 @@ class UIControllerTests(unittest.TestCase):
         asset.dimensions_final = (120, 90)
         asset.edit_state.queued_heavy_jobs.append(HeavyJobSpec(tool=HeavyTool.AI_UPSCALE))
 
-        controller.reset_asset_settings_to_defaults(asset)
+        controller.restore_asset_detected_settings(asset)
 
         self.assertEqual(asset.edit_state.settings.pixel.resize_percent, 100.0)
-        self.assertEqual(asset.edit_state.settings.detail.clarity, 0.0)
-        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.0)
+        self.assertEqual(asset.edit_state.settings.detail.clarity, 0.12)
+        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.18)
         self.assertEqual(asset.edit_state.settings.ai.deblur_strength, 0.0)
         self.assertEqual(asset.dimensions_current, (48, 32))
         self.assertEqual(asset.dimensions_final, (48, 32))
         self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
+
+    def test_capture_preset_controls_saves_only_changes_from_detected_settings(self) -> None:
+        controller = ImageEngineUIController()
+        asset = _asset(mode=EditMode.ADVANCED)
+        asset.format = AssetFormat.PNG
+        asset.classification_tags = ["pixel_art", "web_source:https://example.com"]
+        asset.edit_state.settings.cleanup.denoise = 0.18
+        capture_detected_settings(asset)
+
+        asset.edit_state.settings.cleanup.denoise = 0.31
+        asset.edit_state.settings.color.contrast = 0.2
+        captured = controller.capture_preset_controls(asset)
+
+        self.assertEqual(captured.settings_delta["cleanup"], {"denoise": 0.31})
+        self.assertEqual(captured.settings_delta["color"], {"contrast": 0.2})
+        self.assertEqual(captured.changed_groups, ("color", "cleanup"))
+        self.assertEqual(captured.applies_to_formats, ("png",))
+        self.assertEqual(captured.applies_to_tags, ("pixel_art",))
+
+    def test_named_preset_replaces_stale_edits_but_keeps_detected_controls(self) -> None:
+        controller = ImageEngineUIController()
+        asset = _asset(mode=EditMode.ADVANCED)
+        asset.format = AssetFormat.PNG
+        asset.classification_tags = ["pixel_art"]
+        asset.edit_state.settings.cleanup.denoise = 0.16
+        capture_detected_settings(asset)
+
+        asset.edit_state.settings.cleanup.denoise = 0.88
+        asset.edit_state.settings.color.brightness = 0.4
+        controller.apply_named_preset(asset, "Web Quick Export")
+
+        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.16)
+        self.assertEqual(asset.edit_state.settings.color.brightness, 0.0)
+        self.assertEqual(asset.edit_state.settings.export.format, ExportFormat.WEBP)
 
     def test_apply_heavy_queue_runs_queued_jobs(self) -> None:
         controller = ImageEngineUIController()
@@ -801,7 +911,6 @@ class UIControllerTests(unittest.TestCase):
             self.assertEqual(len(completed), 1)
             self.assertEqual(asset.edit_state.queued_heavy_jobs[0].status, HeavyJobStatus.DONE)
             self.assertTrue(isinstance(asset.derived_final_path, str) and Path(asset.derived_final_path).exists())
-            self.assertTrue(isinstance(asset.derived_current_path, str) and Path(asset.derived_current_path).exists())
             self.assertGreaterEqual(asset.dimensions_final[0], 20)
             self.assertGreaterEqual(asset.dimensions_final[1], 16)
 
@@ -857,7 +966,6 @@ class UIControllerTests(unittest.TestCase):
             asset.source_uri = str(src)
             asset.cache_path = str(src)
             asset.derived_final_path = None
-            asset.derived_current_path = None
             asset.format = AssetFormat.PNG
             asset.capabilities = Capabilities(has_alpha=True, is_animated=False, is_sheet=False, is_ico_bundle=False)
             asset.dimensions_original = (12, 12)
@@ -923,7 +1031,7 @@ class UIControllerTests(unittest.TestCase):
                     self.assertGreater(rgba.getpixel((5, 5))[3], 0)
 
     @unittest.skipUnless(_pillow_available(), "Pillow required for animated GIF preview test.")
-    def test_apply_light_pipeline_preserves_animated_gif_preview(self) -> None:
+    def test_refresh_final_preview_preserves_animated_gif(self) -> None:
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -953,52 +1061,18 @@ class UIControllerTests(unittest.TestCase):
             asset.format = AssetFormat.GIF
             asset.capabilities = Capabilities(has_alpha=True, is_animated=True, is_sheet=False, is_ico_bundle=False)
             asset.dimensions_original = (12, 12)
+            capture_detected_settings(asset)
             asset.edit_state.settings.alpha.background_removal_mode = "white"
 
-            wrote = controller.apply_light_pipeline(asset)
+            wrote = controller.refresh_final_preview(asset)
 
             self.assertTrue(wrote)
-            self.assertTrue(str(asset.derived_current_path).endswith(".gif"))
             self.assertTrue(str(asset.derived_final_path).endswith(".gif"))
 
             with Image.open(asset.derived_final_path) as im:
                 self.assertTrue(bool(getattr(im, "is_animated", False)))
                 self.assertGreaterEqual(int(getattr(im, "n_frames", 1)), 2)
 
-
-    def test_select_export_source_prefers_cache_for_auto_animated_asset(self) -> None:
-        controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.ADVANCED)
-        asset.capabilities = Capabilities(has_alpha=True, is_animated=True, is_sheet=False, is_ico_bundle=False)
-        asset.cache_path = "C:/cache/source_anim.gif"
-        asset.derived_final_path = "C:/cache/final_preview.png"
-        asset.edit_state.settings.export.format = ExportFormat.AUTO
-
-        selected = controller._select_export_source_path(asset)
-
-        self.assertEqual(selected, "C:/cache/source_anim.gif")
-
-    def test_select_export_source_falls_back_to_source_uri(self) -> None:
-        controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.ADVANCED)
-        asset.cache_path = None
-        asset.derived_final_path = None
-        asset.source_uri = "C:/assets/source_only.png"
-
-        selected = controller._select_export_source_path(asset)
-
-        self.assertEqual(selected, "C:/assets/source_only.png")
-
-    def test_select_export_source_prefers_derived_current_when_final_missing(self) -> None:
-        controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.ADVANCED)
-        asset.derived_final_path = None
-        asset.derived_current_path = "C:/cache/current_preview.png"
-        asset.cache_path = "C:/cache/original.png"
-
-        selected = controller._select_export_source_path(asset)
-
-        self.assertEqual(selected, "C:/cache/current_preview.png")
 
     @unittest.skipUnless(_pillow_available(), "Pillow required for real export path test.")
     def test_export_active_asset_uses_source_uri_when_cache_missing(self) -> None:
@@ -1077,6 +1151,18 @@ class UIControllerTests(unittest.TestCase):
         self.assertEqual(getattr(events[0], "event_type", None), "batch_start")
         self.assertEqual(getattr(events[-1], "event_type", None), "batch_cancelled")
 
+    def test_run_batch_uses_the_controllers_heavy_queue_factory(self) -> None:
+        heavy_queue_factory = object()
+        controller = ImageEngineUIController(heavy_queue_factory=heavy_queue_factory)
+        expected_report = SimpleNamespace(items=[])
+
+        with patch("image_engine_app.app.services.batch_workflow.BatchRunner") as runner_class:
+            runner_class.return_value.run.return_value = expected_report
+            report = controller.run_batch([], auto_export=False, auto_preset=False)
+
+        self.assertIs(report, expected_report)
+        self.assertIs(runner_class.call_args.kwargs["heavy_queue_factory"], heavy_queue_factory)
+
     def test_apply_named_preset_auto_upgrades_mode_when_required(self) -> None:
         controller = ImageEngineUIController()
         asset = _asset(mode=EditMode.ADVANCED)
@@ -1090,7 +1176,7 @@ class UIControllerTests(unittest.TestCase):
         self.assertEqual(summary.preset_name, "Photo Recover")
         self.assertEqual(asset.edit_state.mode, EditMode.ADVANCED)
 
-    def test_import_url_source_hydrates_detected_baseline_controls(self) -> None:
+    def test_import_url_source_keeps_recommendations_optional_and_controls_neutral(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             controller = ImageEngineUIController(app_paths=paths)
@@ -1102,41 +1188,21 @@ class UIControllerTests(unittest.TestCase):
                 stream_preview=False,
             )
 
-            asset = summary.asset
+            asset = _primary_asset(summary)
             self.assertIn("pixel_art", set(asset.classification_tags))
             self.assertGreater(len(asset.recommendations.suggested_presets), 0)
             self.assertIn("Pixel Clean Upscale", [item.preset_name for item in asset.recommendations.suggested_presets])
-            self.assertEqual(asset.edit_state.settings.ai.upscale_factor, 4.0)
-            self.assertEqual(asset.edit_state.settings.export.export_profile, ExportProfile.APP_ASSET)
-            self.assertEqual(asset.edit_state.settings.pixel.scale_method, ScaleMethod.NEAREST)
-            self.assertTrue(asset.edit_state.settings.pixel.pixel_snap)
-            self.assertGreater(asset.edit_state.settings.cleanup.denoise, 0.0)
-            self.assertGreater(asset.edit_state.settings.detail.sharpen_amount, 0.0)
+            self.assertEqual(asset.edit_state.settings.ai.upscale_factor, 1.0)
+            self.assertEqual(asset.edit_state.settings.export.export_profile, ExportProfile.WEB)
+            self.assertEqual(asset.edit_state.settings.export.format, ExportFormat.AUTO)
+            self.assertEqual(asset.edit_state.settings.pixel.scale_method, ScaleMethod.LANCZOS)
+            self.assertFalse(asset.edit_state.settings.pixel.pixel_snap)
+            self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.0)
+            self.assertEqual(asset.edit_state.settings.detail.sharpen_amount, 0.0)
             self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
-
-    def test_analysis_inference_clamps_and_prefills_controls(self) -> None:
-        controller = ImageEngineUIController()
-        asset = _asset(mode=EditMode.ADVANCED)
-        asset.classification_tags = ["pixel_art"]
-        asset.analysis = AnalysisSummary(
-            blur_score=0.76,
-            noise_score=0.62,
-            compression_score=0.58,
-            edge_integrity_score=0.48,
-            resolution_need_score=0.95,
-            gif_palette_stress=None,
-            warnings=[],
-        )
-
-        controller._apply_analysis_inferred_control_defaults(asset)
-
-        self.assertEqual(asset.edit_state.settings.pixel.scale_method, ScaleMethod.NEAREST)
-        self.assertTrue(asset.edit_state.settings.pixel.pixel_snap)
-        self.assertGreater(asset.edit_state.settings.cleanup.denoise, 0.0)
-        self.assertGreater(asset.edit_state.settings.cleanup.artifact_removal, 0.0)
-        self.assertGreater(asset.edit_state.settings.detail.sharpen_amount, 0.0)
-        self.assertLessEqual(asset.edit_state.settings.ai.upscale_factor, 4.0)
-        self.assertEqual(len(asset.edit_state.queued_heavy_jobs), 0)
+            self.assertIsNone(asset.derived_final_path)
+            self.assertIsNotNone(asset.detected_settings)
+            self.assertEqual(asset.detected_settings, asset.edit_state.settings)
 
     def test_upsert_user_preset_rejects_invalid_settings_delta(self) -> None:
         controller = ImageEngineUIController()

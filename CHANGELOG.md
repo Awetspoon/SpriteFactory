@@ -1,11 +1,22 @@
 # Changelog
 
-## 1.2.2 - 2026-06-17
-- Added a compact, compatibility-aware preset menu to the main editing tools and kept the full Preset Manager available for creating and maintaining advanced user presets.
-- Simplified Batch Manager with focused `Queue` and `Options` menus while preserving isolated preset, background, naming, and export behavior.
-- Rebuilt and hardened Web Sources scanning, filtering, saved-page navigation, multi-page scans, retry handling, failure reporting, and large-result paging.
-- Completed the preview-first shell polish with consistent control geometry, clearer plain-English labels, reduced button clutter, and refreshed helper guidance.
-- Removed obsolete redesign documents, superseded backend/preset UI code, generated files, and dead tests while retaining coverage for the active architecture.
+## 1.2.3 - 2026-07-17
+- Rebuilt Saved Pages as a persistent Saved Library where each website contains its saved child pages and whole websites or individual pages can be scanned together.
+- Added Save Selected to Library for discovered links, preserving useful page names, grouping by website host, and preventing duplicate bookmarks.
+- Removed ambiguous highlighted-page scan fallback behavior so Scan Checked processes exactly what the user checked.
+- Migrated legacy Web Sources `areas` and `area_id` settings to the clearer `pages` and `page_id` schema without losing existing libraries.
+- Refreshed the in-app Helper, repository documentation, release metadata, screenshot, and Windows download guidance.
+- Completed the staged architecture cleanup and removed superseded V3 scaffolding, old mockups, duplicate coordinators, retired processing paths, and their dead tests.
+
+## 1.2.2 - 2026-07-16
+- Rebuilt startup, state, persistence, imports, editing, presets, export, Batch, and Web Sources around one clear application-service layer instead of overlapping UI-owned workflows.
+- Unified static and animated processing so preview and export share the same sizing, transparency, GIF timing, palette, and format decisions.
+- Made Final the reliable edited preview: control and preset changes rebuild it from the detected asset baseline, while Reset restores that baseline without stacking old edits.
+- Consolidated system and user presets into one compatibility-aware library used by the editor, Preset Studio, automatic recommendations, and Batch.
+- Isolated every Batch run from the live workspace and routed interactive and batch exports through the same format, naming, resizing, and encoding plan.
+- Rebuilt Web Sources with persistent accumulated results, saved pages, multi-page scans, clear limits, retry handling, filtering, and partial-failure reporting.
+- Reworked the desktop shell with responsive splitters, consistent geometry, preview-first sizing, matching dialogs, and clearer Helper guidance.
+- Hardened Windows packaging with package-data checks, synchronized version metadata, and an automated frozen-app launch test.
 
 ## 1.2.1 - 2026-06-15
 - Tightened the main shell spacing and control geometry so the preview studio, toolbar, workflow dock, and settings panel feel more consistent.

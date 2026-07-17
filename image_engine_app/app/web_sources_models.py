@@ -1,31 +1,18 @@
-"""Web Sources models.
-
-Keep these dataclasses small and stable so UI + controller contracts stay safe.
-"""
+"""Stable application contracts for the Web Sources workflow."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import urlparse, urlunparse
 
-if TYPE_CHECKING:
-    from image_engine_app.engine.models import AssetRecord
+from image_engine_app.engine.ingest.web_sources_types import Confidence, ImportTarget
 
 
-class Confidence(str, Enum):
-    DIRECT = "direct"      # ends with a known extension
-    LIKELY = "likely"      # img/srcset hints but no clean extension
-    UNKNOWN = "unknown"    # not used in v1 UI by default
-
-
-class ImportTarget(str, Enum):
-    NORMAL = "normal"
-    SHINY = "shiny"
-    ANIMATED = "animated"
-    ITEMS = "items"
+class ScanOrigin(str, Enum):
+    ENTERED = "entered"
+    SAVED = "saved"
+    LINKED = "linked"
 
 
 @dataclass(frozen=True)
@@ -46,11 +33,99 @@ class WebIndexLink:
 
 
 @dataclass(frozen=True)
+class WebPageBookmark:
+    """One page the user wants to keep in the Saved Library."""
+
+    url: str
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class SavedWebPage:
+    id: str
+    label: str
+    url: str
+
+
+@dataclass(frozen=True)
+class SavedWebsite:
+    id: str
+    name: str
+    pages: tuple[SavedWebPage, ...] = ()
+
+
+@dataclass(frozen=True)
 class SmartOptions:
     show_likely: bool = False
-    auto_sort: bool = False
+    auto_sort: bool = True
     skip_duplicates: bool = True
     allow_zip: bool = True
+
+
+@dataclass(frozen=True)
+class WebScanRequest:
+    """One scan request shared by entered, saved, and discovered pages."""
+
+    urls: tuple[str, ...]
+    smart: SmartOptions = field(default_factory=SmartOptions)
+    origin: ScanOrigin = ScanOrigin.ENTERED
+    website_id: str | None = None
+    page_id: str | None = None
+
+
+@dataclass(frozen=True)
+class WebScanPlan:
+    """Validated, deduplicated page list prepared before network work starts."""
+
+    request: WebScanRequest
+    urls: tuple[str, ...]
+    requested_count: int
+    page_limit: int
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return self.requested_count > self.page_limit
+
+    @property
+    def was_capped(self) -> bool:
+        return self.requested_count > len(self.urls)
+
+
+@dataclass(frozen=True)
+class WebLinkDiscoveryRequest:
+    url: str
+    website_id: str | None = None
+    page_id: str | None = None
+
+
+@dataclass(frozen=True)
+class WebDownloadRequest:
+    items: tuple[WebItem, ...]
+    smart: SmartOptions = field(default_factory=SmartOptions)
+    target: ImportTarget = ImportTarget.NORMAL
+    website_id: str | None = None
+    page_id: str | None = None
+
+
+@dataclass(frozen=True)
+class WebDiagnosticsRequest:
+    url: str
+
+
+@dataclass(frozen=True)
+class WebSavePagesRequest:
+    pages: tuple[WebPageBookmark, ...]
+
+
+@dataclass(frozen=True)
+class WebRemoveSavedPageRequest:
+    website_id: str
+    page_id: str
+
+
+@dataclass(frozen=True)
+class WebRemoveSavedWebsiteRequest:
+    website_id: str
 
 
 @dataclass(frozen=True)
@@ -61,21 +136,72 @@ class ScanResults:
 
 
 @dataclass(frozen=True)
-class DownloadReport:
-    downloaded: tuple[str, ...]
-    skipped: tuple[str, ...]
-    failed: tuple[str, ...]
-    assets: tuple["AssetRecord", ...] = ()
-    cancelled: bool = False
+class ScanMergeResult:
+    """Outcome of adding one scan to the persistent Found Files basket."""
+
+    results: ScanResults
+    added_count: int = 0
+    duplicate_count: int = 0
 
 
-def coerce_import_target(value: object, *, default: ImportTarget = ImportTarget.NORMAL) -> ImportTarget:
-    if isinstance(value, ImportTarget):
-        return value
-    try:
-        return ImportTarget(str(value))
-    except Exception:
-        return default
+@dataclass(frozen=True)
+class WebSourcesState:
+    """Complete non-visual state for one Web Sources workspace."""
+
+    websites: tuple[SavedWebsite, ...] = ()
+    selected_website_id: str | None = None
+    selected_page_id: str | None = None
+    smart: SmartOptions = field(default_factory=SmartOptions)
+    linked_pages: tuple[WebIndexLink, ...] = ()
+    found_files: tuple[WebItem, ...] = ()
+    latest_scan: ScanResults = field(default_factory=lambda: ScanResults(items=()))
+
+
+@dataclass(frozen=True)
+class WebSourcesMutation:
+    state: WebSourcesState
+    message: str
+
+
+@dataclass(frozen=True)
+class WebScanOutcome:
+    state: WebSourcesState
+    latest: ScanResults
+    merge: ScanMergeResult
+
+
+@dataclass(frozen=True)
+class WebDiscoveryOutcome:
+    state: WebSourcesState
+    links: tuple[WebIndexLink, ...]
+
+
+def merge_scan_results(existing: ScanResults, incoming: ScanResults) -> ScanMergeResult:
+    """Merge file URLs while preserving the order in which they were discovered."""
+
+    merged_items = list(existing.items)
+    seen = {_scan_item_key(item) for item in merged_items}
+    added_count = 0
+    duplicate_count = 0
+
+    for item in incoming.items:
+        key = _scan_item_key(item)
+        if key in seen:
+            duplicate_count += 1
+            continue
+        seen.add(key)
+        merged_items.append(item)
+        added_count += 1
+
+    return ScanMergeResult(
+        results=ScanResults(
+            items=tuple(merged_items),
+            filtered_count=int(incoming.filtered_count or 0),
+            failed_pages=tuple(incoming.failed_pages or ()),
+        ),
+        added_count=added_count,
+        duplicate_count=duplicate_count,
+    )
 
 
 def coerce_smart_options(value: object) -> SmartOptions:
@@ -84,101 +210,25 @@ def coerce_smart_options(value: object) -> SmartOptions:
     if isinstance(value, dict):
         return SmartOptions(
             show_likely=bool(value.get("show_likely", False)),
-            auto_sort=bool(value.get("auto_sort", False)),
+            auto_sort=bool(value.get("auto_sort", True)),
             skip_duplicates=bool(value.get("skip_duplicates", True)),
             allow_zip=bool(value.get("allow_zip", True)),
         )
     return SmartOptions()
 
 
-def coerce_web_item(value: object) -> WebItem | None:
-    if isinstance(value, WebItem):
-        return value
-    if not isinstance(value, dict):
-        return None
-
-    url = str(value.get("url", "")).strip()
-    if not url:
-        return None
-
-    confidence_raw = str(value.get("confidence", Confidence.DIRECT.value)).strip().lower()
-    try:
-        confidence = Confidence(confidence_raw)
-    except Exception:
-        confidence = Confidence.DIRECT
-
-    base_name = _name_from_url(url)
-    ext = str(value.get("ext", "")).strip().lower() or _ext_from_url(url)
-
-    return WebItem(
-        url=url,
-        name=str(value.get("name", "")).strip() or base_name,
-        ext=ext,
-        confidence=confidence,
-        preview_url=(str(value.get("preview_url")) if value.get("preview_url") else None),
-        source_page=(str(value.get("source_page")) if value.get("source_page") else None),
+def _scan_item_key(item: WebItem) -> str:
+    raw_url = str(item.url or "").strip()
+    parsed = urlparse(raw_url)
+    if not parsed.scheme or not parsed.netloc:
+        return raw_url.casefold()
+    return urlunparse(
+        (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            "",
+        )
     )
-
-
-def coerce_web_items(raw: object) -> list[WebItem]:
-    if not isinstance(raw, list):
-        return []
-
-    out: list[WebItem] = []
-    for entry in raw:
-        item = coerce_web_item(entry)
-        if item is not None:
-            out.append(item)
-    return out
-
-
-def coerce_web_index_link(value: object) -> WebIndexLink | None:
-    if isinstance(value, WebIndexLink):
-        return value
-    if not isinstance(value, dict):
-        return None
-
-    url = str(value.get("url", "")).strip()
-    if not url:
-        return None
-
-    label = str(value.get("label", "")).strip() or _name_from_url(url)
-    source_page = str(value.get("source_page", "")).strip() or None
-    return WebIndexLink(label=label, url=url, source_page=source_page)
-
-
-def coerce_web_index_links(raw: object) -> list[WebIndexLink]:
-    if not isinstance(raw, list):
-        return []
-
-    out: list[WebIndexLink] = []
-    for entry in raw:
-        link = coerce_web_index_link(entry)
-        if link is not None:
-            out.append(link)
-    return out
-
-
-def _name_from_url(url: str) -> str:
-    parsed = urlparse(url)
-    path_name = unquote(Path(parsed.path).name).strip()
-    if path_name:
-        return path_name
-
-    params = parse_qs(parsed.query or "", keep_blank_values=False)
-    for key in ("filename", "file", "name", "download", "image", "img", "asset", "sprite"):
-        for value in params.get(key, ()):
-            decoded = unquote(str(value or "")).strip()
-            if decoded:
-                return decoded
-
-    return "download"
-
-def _ext_from_url(url: str) -> str:
-    base = url.split("?")[0].split("#")[0]
-    return Path(base).suffix.lower()
-
-
-
-
-

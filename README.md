@@ -1,111 +1,111 @@
 # Sprite Factory Pro
 
-Sprite Factory Pro is a Windows desktop app for cleaning, enhancing, previewing, batch-processing, and exporting sprites, GIFs, icons, and image assets.
+[![Latest release](https://img.shields.io/github/v/release/Awetspoon/SpriteFactory?label=download&style=flat-square)](https://github.com/Awetspoon/SpriteFactory/releases/latest)
+[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0b7a75?style=flat-square)](https://github.com/Awetspoon/SpriteFactory/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-465563?style=flat-square)](LICENSE)
 
-[Download Latest Release](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Release Notes](docs/RELEASE_1.2.2.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
+Sprite Factory Pro is a focused Windows editor for sprites, animated GIFs, icons, photos, and other image assets. Import one file or a whole collection, compare the source with the edited result, make precise adjustments, and export individual files or a complete batch.
 
-![Sprite Factory Pro main window](docs/sprite-factory-pro-1.2.1-ui.png)
+[**Download Sprite Factory Pro for Windows**](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [What's new in 1.2.3](docs/RELEASE_1.2.3.md) | [Help and troubleshooting](docs/TROUBLESHOOTING.md)
 
-## What It Does
+![Sprite Factory Pro editor](docs/sprite-factory-pro-1.2.3-ui.png)
 
-- Import local files, folders, ZIP archives, or images found from web pages.
-- Preview `Current` and `Final` output side by side before exporting.
-- Apply cleanup, color, detail, transparency, GIF, export, and encoding controls.
-- Remove white or black backgrounds when you choose to, without forcing it on import.
-- Use presets for faster sprite, photo, GIF, and mixed-format workflows.
-- Batch process large queues with presets, background overrides, file naming, and export rules.
-- Export to `PNG`, `WEBP`, `JPG`, `GIF`, `ICO`, `TIFF`, and `BMP`.
+## Download And Start
 
-## Download
+1. Open the [latest GitHub release](https://github.com/Awetspoon/SpriteFactory/releases/latest).
+2. Under **Assets**, download `SpriteFactory-v1.2.3-win64.exe`.
+3. Open the downloaded file. No installer or Python setup is required.
+4. Use **File > Add Files** or **File > Add Folder** to begin.
 
-The easiest way to use the app is the latest Windows release:
+Windows may display a SmartScreen warning because the community build is not code-signed. Only continue when the file came from the official `Awetspoon/SpriteFactory` release page.
 
-[Sprite Factory Pro Releases](https://github.com/Awetspoon/SpriteFactory/releases/latest)
+## What You Can Do
 
-Download the `.exe`, run it, then import files from the top `Import` menu or use the `Web Sources` tab.
+- Compare **Current** and **Final** side by side before anything is exported.
+- Adjust size, DPI, color, lighting, detail, cleanup, edges, transparency, GIF playback, and output encoding.
+- Remove white or black backgrounds only when you choose to; importing never removes a background automatically.
+- Apply compatibility-aware presets or save your own preset from the active controls.
+- Process mixed image collections through the isolated Batch Manager.
+- Collect files from public web pages and keep useful websites and pages in a reusable Saved Library.
+- Export PNG, WEBP, JPG, GIF, ICO, TIFF, or BMP with profile, naming, resize, and metadata options.
 
-## Main Workflow
+## Your First Edit
 
-1. Open a new session or continue working in the current workspace.
-2. Import files, folders, ZIPs, or scan web pages for sprite/image links.
-3. Select an asset from the workspace.
-4. Choose a preset or adjust edit settings manually.
-5. Use `Preview` to check the result in the final pane.
-6. Use `Apply` when you want to commit the edit to the asset.
-7. Export one file, skip to the next asset, or open Batch Manager for queue export.
+1. Add an image, animated GIF, folder, or ZIP archive from the **File** menu.
+2. Select an asset in the Workspace. Current shows the original source and Final shows the result that will be exported.
+3. Choose a compatible preset or open an Edit Settings category and make small adjustments.
+4. Watch Final refresh, use a reset action if needed, then choose **Export**.
 
-## Web Sources
+The controls begin from detected source data such as dimensions, DPI, transparency, frame count, and GIF playback metadata. Enhancement values stay neutral until you change a control or choose a preset.
 
-`Web Sources` is built for collecting sprite/image links from normal websites, not just one specific site.
+## Saved Library And Web Sources
 
-- Save useful pages so you can scan them again later.
-- Paste direct page URLs or a manual list of page URLs.
-- Find linked index/category pages, filter the list, then scan only the pages you need.
-- Filter found files by `PNG`, `GIF`, `WEBP`, `JPG`, or `ZIP`.
-- Large scans warn before running so you do not accidentally overload the app or site.
+Web Sources can scan one page, many pasted pages, saved library pages, or selected pages discovered from an index.
 
-## Batch Manager
+- **Scan Pages** accepts one full URL per line, including pages from different websites.
+- **Saved Library** groups saved pages under their website, so one Project Pokemon entry can contain its root, sprite index, generations, and any other pages you choose to keep.
+- **Find Linked Pages** discovers pages from an index without scanning or downloading them automatically.
+- **Save Selected to Library** keeps useful discovered pages with their names for future scans.
+- **Found Files** accumulates unique results across scans until you explicitly clear it.
+- Search, hidden-word, and file-type filters help narrow large result lists without deleting stored results.
 
-Batch Manager processes selected workspace assets with a separate batch workflow so normal preview/edit state does not get tangled with queue export.
+Large scans are capped and require confirmation. Some sites may block automated requests or use JavaScript-only pages that a static scanner cannot read. Please respect each website's terms, copyright, and rate limits.
 
-- Copy current edits when needed.
-- Apply a chosen preset or smart preset rules.
-- Override background-removal behavior for the batch.
-- Keep source names or use batch naming rules.
-- Save files after processing and review failures clearly.
+## Presets And Batch
+
+Preset Studio, Workspace, recommendations, and Batch use the same preset library. System presets are safe templates; experienced users can create a user preset from controls changed on the active asset.
+
+Batch Manager keeps queue processing separate from the live editor. Choose one clear edit source for a run: retain each asset's controls, apply one preset, copy the active controls, or smart-match compatible assets. Background behavior, naming, output folder, and export options remain explicit.
+
+## Supported Files
+
+| Purpose | Formats |
+| --- | --- |
+| Import | JPG/JPEG, PNG, WEBP, TIF/TIFF, BMP, ICO, GIF, and ZIP archives containing supported images |
+| Export | PNG, WEBP, JPG, GIF, ICO, TIFF, and BMP |
+
+Animated GIF preview and export preserve frame timing, looping, transparency, palette, and dithering choices through the shared frame pipeline.
+
+## Privacy And Local Data
+
+Local image editing and export happen on your computer. Web Sources makes network requests only to pages and files you ask it to scan or download. Settings, sessions, caches, logs, and default exports are stored in the app's local data directory and are not committed to this repository.
 
 ## Run From Source
 
-Requirements:
-
-- Windows 10/11
-- Python 3.11+
-- PySide6
-- Pillow
-
-Quick launch:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_app.ps1
-```
-
-Manual setup:
+Source requirements are Windows 10/11, Python 3.11 or newer, Pillow, and PySide6.
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -U pip
 pip install -e .
-py -m image_engine_app
+powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 ```
 
-## Build
+## Build And Test
 
-Build the Windows release executable:
+Build the verified single-file Windows release:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1
 ```
 
-The build output is written under `.local\release\` and is intentionally ignored by Git.
-
-## Tests
+Run the repository health audit:
 
 ```powershell
-.\.venv\Scripts\python.exe -B -m unittest discover -s image_engine_app\tests -p "test_*.py"
+powershell -ExecutionPolicy Bypass -File .\RUN_AUDIT.ps1
 ```
 
-## Repository Layout
+The release build runs the complete automated suite and a frozen-application launch test before producing `.local\release\SpriteFactory-v1.2.3-win64.exe`. Generated builds, runtime data, caches, and local settings are ignored by Git.
 
-```text
-image_engine_app/      active app, UI, engine, services, and tests
-image_engine_v3/       workspace/session service layer used by the app
-pyinstaller_rthooks/   PyInstaller runtime hook support
-docs/                  release notes, screenshot, and support docs
-```
+## Documentation
 
-Generated folders such as `.venv/`, `.local/`, `build/`, `dist/`, `_runtime_data/`, and caches are ignored.
+- [Release notes](docs/RELEASE_1.2.3.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Web Sources guide](docs/WEB_SOURCES_README.md)
+- [Project structure](docs/PROJECT_STRUCTURE.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
 
 ## License
 
-[MIT](LICENSE)
+Sprite Factory Pro is available under the [MIT License](LICENSE).

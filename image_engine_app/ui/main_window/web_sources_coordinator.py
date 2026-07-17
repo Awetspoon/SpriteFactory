@@ -1,33 +1,31 @@
-"""Web Sources coordinator for main-window UI event handling."""
+"""Qt coordinator for the application-owned Web Sources workflow."""
 
 from __future__ import annotations
 
-import re
-import socket
 from typing import Any
-from urllib.parse import urlparse
-from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
-from image_engine_app.app.services.web_sources_service import WebSourcesService
-from image_engine_app.app.settings_store import load_web_sources_settings, save_web_sources_settings
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QProgressDialog, QWidget
+
 from image_engine_app.app.web_sources_models import (
-    ScanResults,
     SmartOptions,
-    coerce_web_index_links,
-    coerce_import_target,
-    coerce_smart_options,
-    coerce_web_items,
+    WebDiagnosticsRequest,
+    WebDownloadRequest,
+    WebLinkDiscoveryRequest,
+    WebRemoveSavedPageRequest,
+    WebRemoveSavedWebsiteRequest,
+    WebSavePagesRequest,
+    WebScanRequest,
+    WebSourcesMutation,
+    WebSourcesState,
 )
 from image_engine_app.engine.ingest.url_ingest import DownloadGuards
 from image_engine_app.engine.ingest.webpage_scan import WebpageScanCancelledError
 from image_engine_app.engine.models import AssetRecord
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QProgressDialog, QWidget
-
 
 class _ProgressSession:
-    """Cancelable progress dialog wrapper used by web scan/download workflows."""
+    """Cancelable progress dialog shared by scan, discovery, and download work."""
 
     def __init__(
         self,
@@ -55,7 +53,6 @@ class _ProgressSession:
         self.dialog.setAutoClose(False)
         self.dialog.setAutoReset(False)
         self.dialog.canceled.connect(self._on_cancel_requested)
-
         self.dialog.show()
         QApplication.processEvents()
 
@@ -68,7 +65,8 @@ class _ProgressSession:
         QApplication.processEvents()
 
     def is_cancel_requested(self) -> bool:
-        return bool(self._cancel_requested)
+        QApplication.processEvents()
+        return self._cancel_requested
 
     def update(
         self,
@@ -94,7 +92,6 @@ class _ProgressSession:
             pass
         if complete and not self._cancel_requested:
             self.dialog.setValue(self.dialog.maximum())
-        # Prefer hide/deleteLater over close(): some platforms can emit canceled on close.
         try:
             self.dialog.hide()
         finally:
@@ -102,530 +99,200 @@ class _ProgressSession:
 
 
 class WebSourcesCoordinator:
-    """Encapsulates Web Sources panel initialization + scan/download actions."""
-
-    WINDOWS_BLOCKED_ACCESS_TEXT = (
-        "Windows blocked network access (WinError 10013). "
-        "Check firewall, VPN, proxy, or antivirus web shield settings."
-    )
+    """Translate panel requests into application workflow calls."""
 
     def __init__(self, window: Any) -> None:
         self._window = window
 
-    @classmethod
-    def _normalize_network_error_message(cls, detail: str) -> str:
-        raw = str(detail or "").strip()
-        lowered = raw.lower()
-        if "winerror 10013" in lowered or "forbidden by its access permissions" in lowered:
-            return cls.WINDOWS_BLOCKED_ACCESS_TEXT
-        if "timed out" in lowered or "timeout" in lowered:
-            return "Network timeout: the website did not respond in time. Try again or scan fewer pages."
-
-        http_match = re.search(r"http error\s+(\d{3})(?::\s*([^>]+))?", raw, flags=re.IGNORECASE)
-        if http_match:
-            code = int(http_match.group(1))
-            reason = " ".join(str(http_match.group(2) or "").split())
-            return cls._friendly_http_error(code, reason=reason)
-
-        return raw or "Unknown network error"
-
-    @staticmethod
-    def _friendly_http_error(code: int, *, reason: str = "") -> str:
-        reason_text = f" ({reason})" if reason else ""
-        if code == 401:
-            return "HTTP 401 (Unauthorized): this page needs authentication/cookies before scanning."
-        if code == 403:
-            return "HTTP 403 (Forbidden): website blocked automated scan requests. Try Network Check or a direct file URL."
-        if code == 404:
-            return "HTTP 404 (Not Found): the page or file URL no longer exists."
-        if code == 429:
-            return "HTTP 429 (Rate limited): try again in a minute, or reduce repeated scans on this host."
-        if code in {500, 502, 503, 504}:
-            return (
-                f"HTTP {code}{reason_text}: the website/server failed before Sprite Factory could scan it. "
-                "Try again later, scan a smaller page list, or use a direct file URL."
-            )
-        if 400 <= code < 500:
-            return f"HTTP {code}{reason_text}: the website rejected this request."
-        if 500 <= code < 600:
-            return f"HTTP {code}{reason_text}: the website/server failed. Try again later."
-        return f"HTTP {code}{reason_text}"
-
-    @staticmethod
-    def _is_timeout_error_message(detail: str) -> bool:
-        lowered = str(detail or "").lower()
-        return "timed out" in lowered or "timeout" in lowered or "winerror 10060" in lowered
-
-    @classmethod
-    def _is_recoverable_page_scan_error_message(cls, detail: str) -> bool:
-        if cls._is_timeout_error_message(detail):
-            return True
-        http_match = re.search(r"http error\s+(\d{3})", str(detail or ""), flags=re.IGNORECASE)
-        if not http_match:
-            return False
-        return int(http_match.group(1)) in {429, 500, 502, 503, 504}
-
-    @classmethod
-    def _is_socket_access_denied(cls, exc: Exception) -> bool:
-        reason = getattr(exc, "reason", exc)
-        win_error = getattr(reason, "winerror", None)
-        if win_error == 10013:
-            return True
-        message = str(reason or exc).lower()
-        return "winerror 10013" in message or "forbidden by its access permissions" in message
-
-    @staticmethod
-    def _normalize_diagnostics_url(raw_url: str) -> str:
-        candidate = str(raw_url or "").strip()
-        if not candidate:
-            raise ValueError("Missing page URL for diagnostics.")
-        if "://" not in candidate:
-            candidate = f"https://{candidate}"
-        parsed = urlparse(candidate)
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("Invalid URL. Use http(s)://domain/path.")
-        return candidate
-
-    def _diagnostics_summary_for_url(self, area_url: str) -> str:
-        normalized = self._normalize_diagnostics_url(area_url)
-        parsed = urlparse(normalized)
-        host = (parsed.hostname or "").strip()
-        if not host:
-            raise ValueError("Diagnostics failed: URL host is missing.")
-
-        port = parsed.port
-        if port is None:
-            port = 443 if parsed.scheme.lower() == "https" else 80
-
-        try:
-            socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-        except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            return f"Network diagnostics: DNS lookup failed for {host} ({detail})"
-
-        try:
-            with socket.create_connection((host, int(port)), timeout=4.0):
-                pass
-        except Exception as exc:
-            if self._is_socket_access_denied(exc):
-                return f"Network diagnostics: {self.WINDOWS_BLOCKED_ACCESS_TEXT}"
-            detail = self._normalize_network_error_message(str(exc))
-            return f"Network diagnostics: TCP connect failed to {host}:{port} ({detail})"
-
-        request = Request(normalized, headers={"User-Agent": "SpriteFactory/1.0.3 (Network Diagnostics)"})
-
-        try:
-            with urlopen(request, timeout=8.0) as response:
-                status = getattr(response, "status", None)
-                code = int(status) if isinstance(status, int) else 200
-                return f"Network diagnostics OK: DNS + TCP + HTTP {code} for {host}:{port}"
-        except Exception as first_exc:
-            if self._is_socket_access_denied(first_exc):
-                return f"Network diagnostics: {self.WINDOWS_BLOCKED_ACCESS_TEXT}"
-
-            try:
-                direct_opener = build_opener(ProxyHandler({}))
-                with direct_opener.open(request, timeout=8.0) as response:
-                    status = getattr(response, "status", None)
-                    code = int(status) if isinstance(status, int) else 200
-                    return (
-                        f"Network diagnostics OK (direct/no-proxy): DNS + TCP + HTTP {code} for {host}:{port}"
-                    )
-            except Exception as second_exc:
-                if self._is_socket_access_denied(second_exc):
-                    return f"Network diagnostics: {self.WINDOWS_BLOCKED_ACCESS_TEXT}"
-                detail = self._normalize_network_error_message(str(first_exc))
-                return (
-                    "Network diagnostics partial: DNS + TCP succeeded, "
-                    f"HTTP request failed ({detail})"
-                )
-
     def init_panel(self) -> None:
-        registry: list[dict] = []
-        selected_website_id: str | None = None
-        selected_area_id: str | None = None
-        smart = SmartOptions()
+        controller = self._window.controller
+        state = controller.web_sources_state() if controller is not None else WebSourcesState()
+        self._window.web_sources_panel.set_state(state)
 
-        if self._window.controller is not None:
-            try:
-                registry = self._window.controller.load_web_sources_registry()
-            except Exception:
-                registry = []
-
-            paths = getattr(self._window.controller, "app_paths", None)
-            if paths is not None:
-                try:
-                    web_cfg = load_web_sources_settings(paths)
-                    raw_registry = web_cfg.get("registry")
-                    if isinstance(raw_registry, list):
-                        registry = self._window.controller.load_web_sources_registry(raw_registry)
-
-                    selected = web_cfg.get("last_selected") if isinstance(web_cfg.get("last_selected"), dict) else {}
-                    selected_website_id = str(selected.get("website_id")) if selected.get("website_id") else None
-                    selected_area_id = str(selected.get("area_id")) if selected.get("area_id") else None
-
-                    smart = coerce_smart_options(web_cfg.get("options"))
-                except Exception:
-                    pass
-
-        self._window.web_sources_panel.set_sources(
-            websites=registry,
-            selected_website_id=selected_website_id,
-            selected_area_id=selected_area_id,
-        )
-        self._window.web_sources_panel.set_smart_options(smart)
-
-    def persist_state(
-        self,
-        *,
-        website_id: str | None = None,
-        area_id: str | None = None,
-        smart: SmartOptions | None = None,
-        registry: list[dict] | None = None,
-    ) -> None:
-        if self._window.controller is None:
+    def on_save_pages_requested(self, payload: object) -> None:
+        if not isinstance(payload, WebSavePagesRequest):
+            self._window.web_sources_panel.set_status("The save-pages request was invalid.")
             return
+        self._run_mutation(lambda controller: controller.save_web_sources_pages(payload))
 
-        paths = getattr(self._window.controller, "app_paths", None)
-        if paths is None:
+    def on_remove_page_requested(self, payload: object) -> None:
+        if not isinstance(payload, WebRemoveSavedPageRequest):
+            self._window.web_sources_panel.set_status("The remove-page request was invalid.")
             return
+        self._run_mutation(lambda controller: controller.remove_web_sources_page(payload))
 
-        panel_website_id, panel_area_id = self._window.web_sources_panel.selected_source_ids()
-        active_smart = smart or self._window.web_sources_panel.smart_options()
-        active_registry = registry if registry is not None else self._window.web_sources_panel.sources_registry()
+    def on_remove_website_requested(self, payload: object) -> None:
+        if not isinstance(payload, WebRemoveSavedWebsiteRequest):
+            self._window.web_sources_panel.set_status("The remove-website request was invalid.")
+            return
+        self._run_mutation(lambda controller: controller.remove_web_sources_website(payload))
 
+    def on_clear_links_requested(self) -> None:
+        self._run_mutation(lambda controller: controller.clear_web_sources_links())
+
+    def on_clear_found_files_requested(self) -> None:
+        self._run_mutation(lambda controller: controller.clear_web_sources_found_files())
+
+    def on_preferences_changed(self, payload: object) -> None:
+        controller = self._window.controller
+        if controller is None or not isinstance(payload, SmartOptions):
+            return
         try:
-            save_web_sources_settings(
-                paths,
-                registry=active_registry,
-                last_selected={
-                    "website_id": website_id if website_id is not None else panel_website_id,
-                    "area_id": area_id if area_id is not None else panel_area_id,
-                },
-                options={
-                    "show_likely": active_smart.show_likely,
-                    "auto_sort": active_smart.auto_sort,
-                    "skip_duplicates": active_smart.skip_duplicates,
-                    "allow_zip": active_smart.allow_zip,
-                },
+            state = controller.update_web_sources_preferences(payload)
+        except Exception as exc:
+            self._window.web_sources_panel.set_status(
+                f"Could not update Web Sources options: {controller.friendly_web_sources_error(exc)}"
             )
-        except Exception:
-            # Persistence failures should not block the UI workflow.
-            pass
-
-    def on_registry_changed(self, payload: object) -> None:
-        if self._window.controller is None:
             return
-
-        if not isinstance(payload, list):
-            self._window.web_sources_panel.set_status("Invalid website registry payload.")
-            return
-
-        registry = self._window.controller.load_web_sources_registry(payload)
-
-        website_id, area_id = self._window.web_sources_panel.selected_source_ids()
-        self._window.web_sources_panel.set_sources(
-            websites=registry,
-            selected_website_id=website_id,
-            selected_area_id=area_id,
-        )
-        persisted_website_id, persisted_area_id = self._window.web_sources_panel.selected_source_ids()
-        self.persist_state(
-            website_id=persisted_website_id,
-            area_id=persisted_area_id,
-            registry=registry,
-        )
+        self._window.web_sources_panel.set_state(state)
 
     def on_scan_requested(self, payload: object) -> None:
-        if self._window.controller is None:
-            self._window.web_sources_panel.set_status("Web Sources scan unavailable: controller not configured")
+        controller = self._window.controller
+        panel = self._window.web_sources_panel
+        if controller is None:
+            panel.set_status("Web Sources scanning is unavailable because the controller is not configured.")
             return
-
-        if not isinstance(payload, dict):
-            self._window.web_sources_panel.set_status("Invalid scan payload.")
+        if not isinstance(payload, WebScanRequest):
+            panel.set_status("The page scan request was invalid.")
             return
-
-        area_url = str(payload.get("area_url", "")).strip()
-        if not area_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page first.")
-            return
-
-        smart = coerce_smart_options(payload.get("smart"))
-        progress = _ProgressSession(
-            window=self._window,
-            panel=self._window.web_sources_panel,
-            label_text="Scanning webpage for assets...",
-            title="Web Sources Scan",
-            minimum=0,
-            maximum=0,
-            cancel_label_text="Cancelling scan...",
-            cancel_status_text="Cancelling scan...",
-        )
 
         try:
-            results = self._window.controller.scan_web_sources_area(
-                area_url,
-                show_likely=smart.show_likely,
+            plan = controller.plan_web_sources_scan(payload)
+        except Exception as exc:
+            panel.set_status(controller.friendly_web_sources_error(exc))
+            return
+
+        if plan.requires_confirmation and not panel.confirm_large_page_scan(
+            plan.requested_count,
+            cap=plan.page_limit,
+        ):
+            panel.set_status("Page scan cancelled before starting.")
+            return
+
+        progress = _ProgressSession(
+            window=self._window,
+            panel=panel,
+            label_text=f"Scanning {len(plan.urls)} page(s)...",
+            title="Web Sources Scan",
+            minimum=0,
+            maximum=max(1, len(plan.urls)),
+            cancel_label_text="Cancelling page scan...",
+            cancel_status_text="Cancelling page scan...",
+        )
+        outcome = None
+        try:
+            outcome = controller.run_web_sources_scan(
+                plan,
+                progress_callback=lambda done, total, message: progress.update(
+                    done_count=done,
+                    total_count=total,
+                    label_text=str(message),
+                    status_text=str(message),
+                ),
                 cancel_requested=progress.is_cancel_requested,
             )
         except WebpageScanCancelledError:
-            self._window.web_sources_panel.set_status("Scan cancelled")
+            panel.set_status("Page scan cancelled. Existing Found Files were kept.")
             self._window._status("Web Sources scan cancelled")
             return
         except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            if self._is_recoverable_page_scan_error_message(str(exc)):
-                results = ScanResults(items=(), filtered_count=0, failed_pages=(f"{area_url}: {detail}",))
-                self._window.web_sources_panel.set_results(results)
-                self._window._status("Web Sources scan finished: 0 item(s), 1 failed page")
-                self.persist_state(
-                    website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-                    area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-                    smart=smart,
-                )
-                return
-            self._window.web_sources_panel.set_status(f"Scan failed: {detail}")
+            panel.set_status(f"Page scan failed: {controller.friendly_web_sources_error(exc)}")
             return
         finally:
-            progress.close()
+            progress.close(complete=outcome is not None)
 
-        self._window.web_sources_panel.set_results(results)
-        self._window._status(f"Web Sources scan complete: {len(results.items)} item(s)")
-        self.persist_state(
-            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-            smart=smart,
+        panel.show_scan_outcome(outcome)
+        failed_count = len(outcome.latest.failed_pages)
+        status = (
+            f"Web Sources scan complete: {outcome.merge.added_count} new, "
+            f"{len(outcome.state.found_files)} total"
         )
+        if outcome.merge.duplicate_count:
+            status += f", {outcome.merge.duplicate_count} duplicate(s) ignored"
+        if failed_count:
+            status += f", {failed_count} page(s) failed"
+        if plan.was_capped:
+            status += f", first {plan.page_limit} pages scanned"
+        self._window._status(status)
 
-    def on_index_links_requested(self, payload: object) -> None:
-        if self._window.controller is None:
-            self._window.web_sources_panel.set_status("Web Sources index scan unavailable: controller not configured")
+    def on_discover_links_requested(self, payload: object) -> None:
+        controller = self._window.controller
+        panel = self._window.web_sources_panel
+        if controller is None:
+            panel.set_status("Linked-page discovery is unavailable because the controller is not configured.")
+            return
+        if not isinstance(payload, WebLinkDiscoveryRequest):
+            panel.set_status("Choose a valid page before finding linked pages.")
             return
 
-        if not isinstance(payload, dict):
-            self._window.web_sources_panel.set_status("Invalid index scan payload.")
-            return
-
-        index_url = str(payload.get("index_url", "")).strip()
-        if not index_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page first.")
-            return
-
-        smart = coerce_smart_options(payload.get("smart"))
         progress = _ProgressSession(
             window=self._window,
-            panel=self._window.web_sources_panel,
-            label_text="Finding linked sprite pages...",
-            title="Web Sources Index Scan",
-            minimum=0,
-            maximum=0,
-            cancel_label_text="Cancelling index scan...",
-            cancel_status_text="Cancelling index scan...",
-        )
-
-        try:
-            links = self._window.controller.discover_web_source_index_links(
-                index_url,
-                same_domain_only=True,
-                cancel_requested=progress.is_cancel_requested,
-            )
-        except WebpageScanCancelledError:
-            self._window.web_sources_panel.set_status("Index scan cancelled")
-            self._window._status("Web Sources index scan cancelled")
-            return
-        except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            self._window.web_sources_panel.set_status(f"Index scan failed: {detail}")
-            return
-        finally:
-            progress.close()
-
-        self._window.web_sources_panel.set_index_links(links)
-        self._window._status(f"Web Sources index scan complete: {len(links)} linked page(s)")
-        self.persist_state(
-            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-            smart=smart,
-        )
-
-    def on_multi_scan_requested(self, payload: object) -> None:
-        if self._window.controller is None:
-            self._window.web_sources_panel.set_status("Web Sources multi-page scan unavailable: controller not configured")
-            return
-
-        if not isinstance(payload, dict):
-            self._window.web_sources_panel.set_status("Invalid multi-page scan payload.")
-            return
-
-        links = coerce_web_index_links(payload.get("pages"))
-        if not links:
-            self._window.web_sources_panel.set_status("Select one or more linked pages first.")
-            return
-
-        smart = coerce_smart_options(payload.get("smart"))
-        progress = _ProgressSession(
-            window=self._window,
-            panel=self._window.web_sources_panel,
-            label_text=f"Scanning {len(links)} linked page(s)...",
-            title="Web Sources Multi-Page Scan",
-            minimum=0,
-            maximum=0,
-            cancel_label_text="Cancelling multi-page scan...",
-            cancel_status_text="Cancelling multi-page scan...",
-        )
-
-        try:
-            results = self._window.controller.scan_web_source_pages(
-                [link.url for link in links],
-                show_likely=smart.show_likely,
-                cancel_requested=progress.is_cancel_requested,
-            )
-        except WebpageScanCancelledError:
-            self._window.web_sources_panel.set_status("Multi-page scan cancelled")
-            self._window._status("Web Sources multi-page scan cancelled")
-            return
-        except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            self._window.web_sources_panel.set_status(f"Multi-page scan failed: {detail}")
-            return
-        finally:
-            progress.close()
-
-        self._window.web_sources_panel.set_results(results)
-        self._window._status(
-            f"Web Sources multi-page scan complete: {len(results.items)} item(s) from {len(links)} page(s)"
-        )
-        self.persist_state(
-            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-            smart=smart,
-        )
-
-    def on_index_scan_all_requested(self, payload: object) -> None:
-        if self._window.controller is None:
-            self._window.web_sources_panel.set_status("Web Sources linked-page scan unavailable: controller not configured")
-            return
-
-        if not isinstance(payload, dict):
-            self._window.web_sources_panel.set_status("Invalid linked-page scan payload.")
-            return
-
-        index_url = str(payload.get("index_url", "")).strip()
-        if not index_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page first.")
-            return
-
-        smart = coerce_smart_options(payload.get("smart"))
-        progress = _ProgressSession(
-            window=self._window,
-            panel=self._window.web_sources_panel,
+            panel=panel,
             label_text="Finding linked pages...",
-            title="Web Sources Linked Page Scan",
+            title="Find Linked Pages",
             minimum=0,
             maximum=0,
-            cancel_label_text="Cancelling linked-page scan...",
-            cancel_status_text="Cancelling linked-page scan...",
+            cancel_label_text="Cancelling page discovery...",
+            cancel_status_text="Cancelling page discovery...",
         )
-
+        outcome = None
         try:
-            links = self._window.controller.discover_web_source_index_links(
-                index_url,
-                same_domain_only=True,
-                cancel_requested=progress.is_cancel_requested,
-            )
-            self._window.web_sources_panel.set_index_links(links)
-            if not links:
-                self._window.web_sources_panel.set_status(
-                    "Found 0 linked pages. Try Scan Page for this page or choose a broader index page."
-                )
-                self._window._status("Web Sources linked-page scan found 0 linked pages")
-                return
-
-            page_count = len(links)
-            scan_cap = int(getattr(self._window.web_sources_panel, "LINKED_PAGE_SCAN_CAP", 100))
-            if page_count > scan_cap:
-                should_continue = self._window.web_sources_panel.confirm_large_linked_page_scan(
-                    page_count,
-                    cap=scan_cap,
-                )
-                if not should_continue:
-                    self._window.web_sources_panel.set_status("Linked-page scan cancelled before starting.")
-                    self._window._status("Web Sources linked-page scan cancelled before starting")
-                    return
-                links = links[:scan_cap]
-
-            progress.update(
-                done_count=0,
-                total_count=max(1, len(links)),
-                label_text=f"Scanning {len(links)} linked page(s)...",
-                status_text=f"Scanning {len(links)} linked page(s)...",
-            )
-            results = self._window.controller.scan_web_source_pages(
-                [link.url for link in links],
-                show_likely=smart.show_likely,
+            outcome = controller.discover_web_sources_links(
+                payload,
                 cancel_requested=progress.is_cancel_requested,
             )
         except WebpageScanCancelledError:
-            self._window.web_sources_panel.set_status("Linked-page scan cancelled")
-            self._window._status("Web Sources linked-page scan cancelled")
+            panel.set_status("Linked-page discovery cancelled.")
+            self._window._status("Web Sources page discovery cancelled")
             return
         except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            self._window.web_sources_panel.set_status(f"Linked-page scan failed: {detail}")
+            panel.set_status(f"Could not find linked pages: {controller.friendly_web_sources_error(exc)}")
             return
         finally:
-            progress.close()
+            progress.close(complete=outcome is not None)
 
-        self._window.web_sources_panel.set_results(results)
-        self._window._status(
-            f"Web Sources linked-page scan complete: {len(results.items)} item(s) from {len(links)} page(s)"
-        )
-        self.persist_state(
-            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-            smart=smart,
-        )
+        panel.set_state(outcome.state)
+        if outcome.links:
+            panel.set_status(
+                f"Found {len(outcome.links)} linked page(s). Select the pages you want, then scan them."
+            )
+        else:
+            panel.set_status(
+                "No linked pages were found. Try scanning this page directly or choose a broader index page."
+            )
+        self._window._status(f"Web Sources found {len(outcome.links)} linked page(s)")
 
     def on_download_requested(self, payload: object) -> None:
-        if self._window.controller is None:
-            self._window.web_sources_panel.set_status("Web Sources download unavailable: controller not configured")
+        controller = self._window.controller
+        panel = self._window.web_sources_panel
+        if controller is None:
+            panel.set_status("Web Sources downloading is unavailable because the controller is not configured.")
             return
-
-        if not isinstance(payload, dict):
-            self._window.web_sources_panel.set_status("Invalid download payload.")
+        if not isinstance(payload, WebDownloadRequest) or not payload.items:
+            panel.set_status("Select at least one found file to download.")
             return
-
-        items = coerce_web_items(payload.get("items"))
-        if not items:
-            self._window.web_sources_panel.set_status("Select at least one item to download.")
-            return
-
-        target = coerce_import_target(payload.get("target"))
-        smart = coerce_smart_options(payload.get("smart"))
 
         progress = _ProgressSession(
             window=self._window,
-            panel=self._window.web_sources_panel,
+            panel=panel,
             label_text="Preparing downloads...",
             title="Web Sources Download",
             minimum=0,
-            maximum=max(1, len(items)),
+            maximum=max(1, len(payload.items)),
             cancel_label_text="Cancelling downloads...",
             cancel_status_text="Cancelling downloads...",
         )
         progress.update(
             done_count=0,
-            total_count=max(1, len(items)),
+            total_count=len(payload.items),
             label_text="Preparing downloads...",
             status_text="Preparing downloads...",
         )
 
         report = None
         try:
-            report = self._window.controller.download_web_sources_items(
-                items,
-                target,
-                smart=smart,
+            report = controller.download_web_sources(
+                payload,
                 guards=DownloadGuards(max_bytes=25 * 1024 * 1024, max_pixels=64_000_000),
                 progress_callback=lambda done, total, message: progress.update(
                     done_count=done,
@@ -636,88 +303,58 @@ class WebSourcesCoordinator:
                 cancel_requested=progress.is_cancel_requested,
             )
         except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            self._window.web_sources_panel.set_status(f"Download failed: {detail}")
+            panel.set_status(f"Download failed: {controller.friendly_web_sources_error(exc)}")
             return
         finally:
-            should_mark_complete = bool(report is not None and not getattr(report, "cancelled", False))
-            progress.close(complete=should_mark_complete)
+            progress.close(complete=bool(report is not None and not getattr(report, "cancelled", False)))
 
-        if report.assets:
+        workspace_assets = [
+            asset
+            for asset in tuple(getattr(report, "assets", ()) or ())
+            if isinstance(asset, AssetRecord)
+        ]
+        if workspace_assets:
             try:
-                workspace_assets = [
-                    asset
-                    for asset in tuple(getattr(report, "assets", ()) or ())
-                    if isinstance(asset, AssetRecord)
-                ]
-                if workspace_assets:
-                    self._window._register_assets(workspace_assets, set_active=True)
+                self._window._register_assets(workspace_assets, set_active=True)
             except Exception as exc:
                 detail = str(exc).strip() or exc.__class__.__name__
-                self._window.web_sources_panel.set_status(
-                    f"Download completed but failed to load workspace assets: {detail}"
-                )
-                self._window._status("Web Sources import completed, but workspace load failed")
-                self.persist_state(
-                    website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-                    area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-                    smart=smart,
-                )
+                panel.set_status(f"Download completed but workspace loading failed: {detail}")
+                self._window._status("Web Sources download completed, but workspace load failed")
                 return
 
-        message = self.format_download_status(report)
-        self._window.web_sources_panel.set_status(message)
+        message = controller.format_web_sources_download_status(report)
+        panel.set_status(message)
         self._window._status(message)
-        self.persist_state(
-            website_id=(str(payload.get("website_id")) if payload.get("website_id") else None),
-            area_id=(str(payload.get("area_id")) if payload.get("area_id") else None),
-            smart=smart,
-        )
 
-    def on_network_diagnostics_requested(self, payload: object) -> None:
-        if not isinstance(payload, dict):
-            self._window.web_sources_panel.set_status("Invalid diagnostics payload.")
+    def on_diagnostics_requested(self, payload: object) -> None:
+        controller = self._window.controller
+        panel = self._window.web_sources_panel
+        if controller is None:
+            panel.set_status("Connection checking is unavailable because the controller is not configured.")
             return
-
-        area_url = str(payload.get("area_url", "")).strip()
-        if not area_url:
-            self._window.web_sources_panel.set_status("Enter a URL or pick a saved page for diagnostics.")
+        if not isinstance(payload, WebDiagnosticsRequest):
+            panel.set_status("Choose a valid page URL before running a connection check.")
             return
-
         try:
-            summary = self._diagnostics_summary_for_url(area_url)
+            summary = controller.diagnose_web_source(payload)
         except Exception as exc:
-            detail = self._normalize_network_error_message(str(exc))
-            summary = f"Network diagnostics failed: {detail}"
-
-        self._window.web_sources_panel.set_status(summary)
+            summary = f"Connection check failed: {controller.friendly_web_sources_error(exc)}"
+        panel.set_status(summary)
         self._window._status(summary)
 
-    @staticmethod
-    def format_download_status(report: object) -> str:
-        downloaded = len(tuple(getattr(report, "downloaded", ()) or ()))
-        skipped = len(tuple(getattr(report, "skipped", ()) or ()))
-        failed = len(tuple(getattr(report, "failed", ()) or ()))
-        loaded = len(
-            [
-                asset
-                for asset in tuple(getattr(report, "assets", ()) or ())
-                if isinstance(asset, AssetRecord)
-            ]
-        )
-        reused = max(0, loaded - downloaded)
-        cancelled = bool(getattr(report, "cancelled", False))
-        prefix = "Web Sources import cancelled" if cancelled else "Web Sources import"
-        message = (
-            f"{prefix}: downloaded {downloaded}, reused {reused} cached, "
-            f"skipped {skipped}, failed {failed}, workspace loaded {loaded}"
-        )
-        failure_preview = WebSourcesService.summarize_failures(tuple(getattr(report, "failed", ()) or ()), limit=2)
-        if failure_preview:
-            return f"{message} | sample failures: {failure_preview}"
-        return message
-
-
-
-
-
+    def _run_mutation(self, operation) -> None:  # noqa: ANN001
+        controller = self._window.controller
+        panel = self._window.web_sources_panel
+        if controller is None:
+            panel.set_status("Web Sources is unavailable because the controller is not configured.")
+            return
+        try:
+            mutation = operation(controller)
+        except Exception as exc:
+            panel.set_status(f"Web Sources update failed: {controller.friendly_web_sources_error(exc)}")
+            return
+        if not isinstance(mutation, WebSourcesMutation):
+            panel.set_status("Web Sources returned an invalid state update.")
+            return
+        panel.set_state(mutation.state)
+        panel.set_status(mutation.message)

@@ -22,14 +22,19 @@ hiddenimports = []
 # The rest of the app is imported statically from the root entrypoint.
 hiddenimports += collect_submodules("image_engine_app.ui.main_window")
 
-datas = []
-datas += collect_data_files("image_engine_app", include_py_files=False)
+datas = collect_data_files(
+    "image_engine_app",
+    include_py_files=False,
+    includes=[
+        "assets/icons/*.ico",
+        "assets/icons/*.png",
+        "docs/*.json",
+        "ui/common/*.svg",
+    ],
+)
 
-# Bundle runtime icon files so Qt can load them directly in frozen mode.
-for icon_name in ("spritefactory_pro.png", "spritefactory_pro.ico", "spritefactory.png", "spritefactory.ico"):
-    icon_data = os.path.join(project_root, icon_name)
-    if os.path.exists(icon_data):
-        datas.append((icon_data, "."))
+# Use the packaged icon files for both Qt runtime branding and the EXE resource.
+icon_source_dir = os.path.join(project_root, "image_engine_app", "assets", "icons")
 
 rthook = os.path.join(project_root, "pyinstaller_rthooks", "pyside6_plugin_path.py")
 runtime_hooks = [rthook] if os.path.exists(rthook) else []
@@ -73,7 +78,11 @@ exe_kwargs = dict(
     console=False,
 )
 
-icon_file = os.path.join(project_root, "spritefactory_pro.ico")
+icon_file = os.path.join(icon_source_dir, "spritefactory_pro.ico")
+if not os.path.exists(icon_file):
+    icon_file = os.path.join(icon_source_dir, "spritefactory.ico")
+if not os.path.exists(icon_file):
+    icon_file = os.path.join(project_root, "spritefactory_pro.ico")
 if not os.path.exists(icon_file):
     icon_file = os.path.join(project_root, "spritefactory.ico")
 if os.path.exists(icon_file):

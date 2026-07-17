@@ -1,7 +1,5 @@
 # Sprite Factory Pro 1.2.0
 
-![Sprite Factory Pro 1.2.0](sprite-factory-ui.png)
-
 ## Highlights
 
 - Rebuilt the shell into a cleaner preview-first studio layout.

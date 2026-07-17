@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from image_engine_app.app.web_sources_models import Confidence, ImportTarget
+from image_engine_app.engine.ingest.formats import SUPPORTED_IMAGE_EXTENSIONS
+from image_engine_app.engine.ingest.web_sources_types import Confidence, ImportTarget
 
 
 ALLOWED_IMAGE_EXTS_DEFAULT = {".png", ".gif", ".webp", ".jpg", ".jpeg"}
 ALLOWED_ARCHIVE_EXTS_DEFAULT = {".zip"}
-_SUPPORTED_EXTS = ALLOWED_IMAGE_EXTS_DEFAULT | ALLOWED_ARCHIVE_EXTS_DEFAULT | {".bmp", ".ico", ".tif", ".tiff"}
+_SUPPORTED_EXTS = set(SUPPORTED_IMAGE_EXTENSIONS) | ALLOWED_ARCHIVE_EXTS_DEFAULT
 
 _EXT_QUERY_KEYS = (
     "filename",

@@ -39,6 +39,8 @@ class ShellCoordinator:
         inspector = self._window._workspace_inspector_panel
         if inspector is not None:
             inspector.setVisible(not compact)
+        if not compact and hasattr(self._window, "_restore_workspace_columns"):
+            self._window._restore_workspace_columns()
 
         self._window._status("Compact UI enabled" if compact else "Compact UI disabled")
 
@@ -48,6 +50,8 @@ class ShellCoordinator:
         inspector = self._window._workspace_inspector_panel
         if inspector is not None:
             inspector.show()
+        if hasattr(self._window, "_restore_workspace_columns"):
+            self._window._restore_workspace_columns()
         preview = getattr(self._window, "preview_panel", None)
         if preview is not None and hasattr(preview, "restore_default_view"):
             preview.restore_default_view()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,13 +11,16 @@ from image_engine_app.engine.analyze.gif_scan import GifScanInput, estimate_gif_
 from image_engine_app.engine.analyze.quality_scan import QualityScanInput, scan_quality
 from image_engine_app.engine.analyze.recommend import RecommendationInput, build_recommendations
 from image_engine_app.engine.classify.classifier import classify_asset
-from image_engine_app.engine.export.exporters import ExportRequest, ExportResult, export_image
-from image_engine_app.engine.export.size_predictor import ExportPredictorInput, ExportPredictorResult, predict_export_size
-from image_engine_app.engine.export.naming import safe_stem as export_safe_stem, render_name_template, ensure_unique_path
+from image_engine_app.engine.export.asset_export import (
+    AssetExportOptions,
+    AssetExportOutcome,
+    export_asset as export_asset_to_file,
+)
+from image_engine_app.engine.export.exporters import ExportResult
+from image_engine_app.engine.export.size_predictor import ExportPredictorResult
 from image_engine_app.engine.models import (
     AssetFormat,
     AssetRecord,
-    ExportFormat,
     HeavyJobSpec,
     QueueItem,
     QueueItemStatus,
@@ -26,11 +28,13 @@ from image_engine_app.engine.models import (
 )
 from image_engine_app.engine.process.heavy_queue import HeavyQueueEngine
 from image_engine_app.engine.process.heavy_runtime import execute_heavy_job
-from image_engine_app.engine.process.light_steps import LightProcessError
 from image_engine_app.engine.process.pipeline import PipelinePhase, ProcessingPlan, ProcessingStep, build_processing_plan
-from image_engine_app.engine.process.preset_compat import preset_matches_asset
-from image_engine_app.engine.process.presets_apply import ViewEditStates, apply_preset_stack
-from image_engine_app.engine.process.preview_support import render_light_pipeline_preview, resolve_export_source, select_export_source_path
+from image_engine_app.engine.process.preset_application import (
+    commit_preset_application,
+    plan_preset_application,
+    select_first_compatible_preset,
+)
+from image_engine_app.engine.process.asset_preview import render_asset_preview
 
 
 LOGGER = logging.getLogger("image_engine_app.batch.runner")
@@ -53,9 +57,7 @@ class BatchRunnerConfig:
     export_dir: str | Path | None = None
     derived_cache_dir: str | Path | None = None
     auto_preset_rules: dict[str, list[PresetModel]] = field(default_factory=dict)
-    per_source_preset_rules: dict[str, list[PresetModel]] = field(default_factory=dict)
     group_outputs: bool = True
-    group_outputs_by: str = "source"
     export_name_template: str = "{index:03d}_{stem}"
     overwrite_existing_exports: bool = False
     stop_on_error: bool = False
@@ -359,11 +361,11 @@ class BatchRunner:
             result.processing_plan = None if self.config.preview_skip_mode else self._build_processing_plan(asset)
 
             mark(0.55, "presets")
-            applied_presets = self._apply_auto_presets_if_any(asset)
+            applied_presets = self._apply_smart_preset_if_any(asset)
             result.applied_preset_names = applied_presets
 
             mark(0.63, "light_pipeline")
-            self._run_light_pipeline(asset)
+            self._render_final_preview(asset)
 
             mark(0.7, "heavy_queue")
             heavy_jobs = self._run_heavy_jobs(asset)
@@ -372,10 +374,15 @@ class BatchRunner:
             mark(0.85, "export_prepare")
             if self.config.auto_export:
                 mark(0.9, "exporting")
-                predictor_result = self._predict_export(asset)
-                export_result = self._auto_export(asset, predictor_result, index=index)
-                result.predictor_result = predictor_result
-                result.export_result = export_result
+                export_outcome = self._export_asset(
+                    asset,
+                    index=index,
+                    preset_name=(applied_presets[-1] if applied_presets else ""),
+                )
+                result.predictor_result = export_outcome.plan.prediction
+                result.export_result = export_outcome.result
+                if not export_outcome.result.success:
+                    raise RuntimeError(export_outcome.result.message)
                 mark(0.98, "export_saved")
 
             queue_item.status = QueueItemStatus.DONE
@@ -519,94 +526,42 @@ class BatchRunner:
 
         return build_processing_plan(steps)
 
-    def _source_rule_keys(self, asset: AssetRecord) -> list[str]:
-        """Return normalized source keys used for per-source preset rules and export grouping."""
-        keys: list[str] = []
+    def _apply_smart_preset_if_any(self, asset: AssetRecord) -> list[str]:
+        """Choose one compatible smart preset and apply it from the detected baseline."""
+
+        if not self.config.auto_preset_rules:
+            return []
+
+        rule_keys: list[str] = []
         if asset.capabilities.is_animated or asset.format is AssetFormat.GIF:
-            keys.append("gif")
+            rule_keys.append("animation")
         if asset.capabilities.is_sheet:
-            keys.append("spritesheet")
-        if asset.format is AssetFormat.PNG:
-            keys.append("png")
-        elif asset.format is AssetFormat.JPG:
-            keys.append("jpg")
-        elif asset.format is AssetFormat.WEBP:
-            keys.append("webp")
-        elif asset.format is AssetFormat.ICO:
-            keys.append("ico")
-        if not keys:
-            keys.append("other")
-        return keys
+            rule_keys.append("sprite_sheet")
+        rule_keys.extend(str(tag) for tag in asset.classification_tags)
 
-    def _export_group_folder(self, asset: AssetRecord, predicted_format: str | None) -> str:
-        """Choose a folder name for grouping batch exports."""
-        if asset.capabilities.is_animated or asset.format is AssetFormat.GIF or (predicted_format or "").lower() == "gif":
-            return "gifs"
-        if asset.capabilities.is_sheet:
-            return "spritesheets"
-
-        fmt = (predicted_format or "").lower().strip()
-        if fmt in {"png", "jpg", "webp", "tiff", "bmp", "ico"}:
-            return fmt
-
-        if asset.format is not None and getattr(asset.format, "value", None):
-            val = str(asset.format.value).lower()
-            if val in {"png", "jpg", "webp", "tiff", "bmp", "ico", "gif"}:
-                return "gifs" if val == "gif" else val
-        return "other"
-
-    def _apply_auto_presets_if_any(self, asset: AssetRecord) -> list[str]:
-        if not self.config.auto_preset_rules and not self.config.per_source_preset_rules:
-            return []
-
-        presets_to_apply: list[PresetModel] = []
+        candidates: list[PresetModel] = []
         seen_names: set[str] = set()
-        # Apply per-source rules first (file type / spritesheet / animation)
-        for key in self._source_rule_keys(asset):
-            for preset in self.config.per_source_preset_rules.get(key, []):
-                compatible, _reason = preset_matches_asset(preset, asset)
-                if not compatible:
-                    continue
+        for key in dict.fromkeys(rule_keys):
+            for preset in self.config.auto_preset_rules.get(key, []):
                 if preset.name in seen_names:
                     continue
                 seen_names.add(preset.name)
-                presets_to_apply.append(preset)
+                candidates.append(preset)
 
-        for tag in asset.classification_tags:
-            for preset in self.config.auto_preset_rules.get(tag, []):
-                compatible, _reason = preset_matches_asset(preset, asset)
-                if not compatible:
-                    continue
-                if preset.name in seen_names:
-                    continue
-                seen_names.add(preset.name)
-                presets_to_apply.append(preset)
-
-        if not presets_to_apply:
+        selected = select_first_compatible_preset(asset, candidates)
+        if selected is None:
             return []
 
-        # The schema keeps one canonical EditState; we emulate current/final views for apply-target rules
-        # and persist the resulting active state back onto the asset.
-        states = ViewEditStates(current=deepcopy(asset.edit_state), final=deepcopy(asset.edit_state))
-        report = apply_preset_stack(presets_to_apply, states=states)
+        plan = plan_preset_application(asset, selected)
+        commit_preset_application(asset, plan)
+        return [selected.name]
 
-        if report.effective_target is not None and (
-            report.effective_target.value in {"final", "both"} or report.sync_applied
-        ):
-            asset.edit_state = report.states.final
-        else:
-            asset.edit_state = report.states.current
-
-        return report.applied_preset_names
-
-    def _run_light_pipeline(self, asset: AssetRecord) -> None:
-        """Render the light (non-AI) pipeline to a derived Final output, if configured."""
-        render_light_pipeline_preview(
+    def _render_final_preview(self, asset: AssetRecord) -> None:
+        """Render current edits to a derived Final output when configured."""
+        render_asset_preview(
             asset,
             derived_cache_dir=self.config.derived_cache_dir,
-            final_only=True,
         )
-
 
     def _run_heavy_jobs(self, asset: AssetRecord) -> list[HeavyJobSpec]:
         if not asset.edit_state.queued_heavy_jobs:
@@ -630,71 +585,26 @@ class BatchRunner:
         asset.edit_state.queued_heavy_jobs = engine.list_jobs()
         return finished
 
-    def _predict_export(self, asset: AssetRecord) -> ExportPredictorResult:
-        width, height = asset.dimensions_final or asset.dimensions_current or asset.dimensions_original or (1, 1)
-        return predict_export_size(
-            ExportPredictorInput(
-                width=max(1, width),
-                height=max(1, height),
-                export_settings=asset.edit_state.settings.export,
-                has_alpha=asset.capabilities.has_alpha,
-                is_animated=asset.capabilities.is_animated,
-                frame_count=8 if asset.capabilities.is_animated else 1,
-                complexity=self.config.predictor_complexity,
-            )
-        )
-
-    def _auto_export(
+    def _export_asset(
         self,
         asset: AssetRecord,
-        predictor_result: ExportPredictorResult,
         *,
         index: int,
-    ) -> ExportResult:
+        preset_name: str,
+    ) -> AssetExportOutcome:
         if not self.config.export_dir:
             raise ValueError("auto_export is enabled but export_dir is not configured")
-
-        export_dir = Path(self.config.export_dir)
-        export_dir.mkdir(parents=True, exist_ok=True)
-
-        predicted_format = predictor_result.prediction.predicted_format
-        ext = _extension_for_export_format_string(predicted_format)
-
-        group_folder = ""
-        output_dir = export_dir
-        if self.config.group_outputs:
-            group_folder = self._export_group_folder(asset, predicted_format)
-            output_dir = export_dir / group_folder
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-        stem = export_safe_stem(asset.original_name or asset.id)
-        name_stem = render_name_template(
-            self.config.export_name_template,
-            index=(index + 1),
-            stem=stem,
-            group=group_folder,
-            asset_id=asset.id,
-            preset="",
-        )
-        output_path = ensure_unique_path(
-            output_dir / f"{name_stem}{ext}",
-            overwrite_existing=self.config.overwrite_existing_exports,
-        )
-
-        width, height = asset.dimensions_final or asset.dimensions_current or asset.dimensions_original or (1, 1)
-        export_source = resolve_export_source(asset)
-        return export_image(
-            ExportRequest(
-                output_path=output_path,
-                source_path=export_source.source_path,
-                width=max(1, width),
-                height=max(1, height),
-                export_settings=asset.edit_state.settings.export,
-                asset_id=asset.id,
-                frame_count=8 if asset.capabilities.is_animated else 1,
-                has_alpha=asset.capabilities.has_alpha,
-                light_settings=export_source.light_settings,
-            )
+        return export_asset_to_file(
+            asset,
+            AssetExportOptions(
+                export_dir=self.config.export_dir,
+                name_template=self.config.export_name_template,
+                index=index + 1,
+                group_outputs=self.config.group_outputs,
+                overwrite_existing=self.config.overwrite_existing_exports,
+                preset_name=preset_name,
+                predictor_complexity=self.config.predictor_complexity,
+            ),
         )
 
     @staticmethod
@@ -714,42 +624,12 @@ class BatchRunner:
         if callback is not None and callback():
             raise _BatchRunCancelled("Batch cancelled")
 
-
-    def _select_export_source_path(self, asset: AssetRecord) -> str | None:
-        """Choose source path for exports.
-
-        Prefer derived_final_path, then derived_current_path, for processed outputs, but preserve GIF frames when exporting GIF from an animated source.
-        """
-        return select_export_source_path(asset)
-
-
 class _BatchRunCancelled(RuntimeError):
     """Internal control-flow exception used for cooperative cancellation."""
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.item_result: BatchItemRunResult | None = None
-
-
-
-def _extension_for_export_format_string(fmt: str) -> str:
-    mapping = {
-        ExportFormat.JPG.value: ".jpg",
-        ExportFormat.PNG.value: ".png",
-        ExportFormat.WEBP.value: ".webp",
-        ExportFormat.GIF.value: ".gif",
-        ExportFormat.ICO.value: ".ico",
-        ExportFormat.TIFF.value: ".tiff",
-        ExportFormat.BMP.value: ".bmp",
-    }
-    return mapping.get(fmt, ".bin")
-
-
-
-
-
-
-
 
 
 

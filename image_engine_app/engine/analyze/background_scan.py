@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from image_engine_app.engine.models import BackgroundRemovalMode
-from image_engine_app.engine.process.light_steps import build_background_cutout_keep_mask
+from image_engine_app.engine.process.transparency import build_background_cutout_keep_mask
 
 
 @dataclass(frozen=True)

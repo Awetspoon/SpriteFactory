@@ -1,55 +1,49 @@
-"""Imported-asset hydration and analysis helpers."""
+"""Imported-asset metadata, analysis, and recommendation helpers."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from image_engine_app.engine.analyze.gif_scan import GifScanInput, estimate_gif_palette_stress_for_source
+from image_engine_app.engine.analyze.gif_scan import (
+    GifScanInput,
+    estimate_gif_palette_stress_for_source,
+)
 from image_engine_app.engine.analyze.quality_scan import QualityScanInput, scan_quality
 from image_engine_app.engine.analyze.recommend import RecommendationInput, build_recommendations
 from image_engine_app.engine.classify.classifier import classify_asset
-from image_engine_app.engine.models import AssetFormat, AssetRecord, ExportFormat, ExportProfile, ScaleMethod, SourceType
-from image_engine_app.engine.process.bounds import clamp_edit_state_for_mode
+from image_engine_app.engine.models import AssetFormat, AssetRecord, SettingsState, SourceImageMetadata
 
 
 class AssetProfileService:
-    """Prepares imported assets with metadata, analysis, and default controls."""
+    """Prepare imported assets without silently applying suggested edits."""
 
-    def hydrate_imported_asset(self, asset: AssetRecord, *, apply_baseline_preset) -> None:
+    def hydrate_imported_asset(self, asset: AssetRecord) -> None:
+        """Create a source-faithful baseline, then calculate optional advice."""
+
+        self.reset_new_asset_to_source_controls(asset)
         self.probe_image_metadata(asset)
-        self.reset_new_asset_to_default_size(asset)
         self.analyze_asset_profile(asset)
-        apply_baseline_preset(asset)
-        self.apply_analysis_inferred_control_defaults(asset)
-        self.apply_recommended_export_defaults(asset)
-
-    def hydrate_local_assets(self, assets: list[AssetRecord], *, hydrate_asset) -> None:
-        for asset in assets:
-            if asset.cache_path is None and asset.source_type in {SourceType.FILE, SourceType.FOLDER_ITEM}:
-                asset.cache_path = asset.source_uri
-            hydrate_asset(asset)
 
     @staticmethod
-    def reset_new_asset_to_default_size(asset: AssetRecord) -> None:
-        settings = getattr(getattr(asset, "edit_state", None), "settings", None)
-        pixel = getattr(settings, "pixel", None)
-        if pixel is not None:
-            pixel.resize_percent = 100.0
-            pixel.width = None
-            pixel.height = None
+    def reset_new_asset_to_source_controls(asset: AssetRecord) -> None:
+        """Start every new import from neutral, source-preserving controls."""
 
-        asset.derived_current_path = None
+        asset.edit_state.settings = SettingsState()
+        asset.edit_state.queued_heavy_jobs.clear()
+        asset.detected_settings = None
         asset.derived_final_path = None
 
         original = getattr(asset, "dimensions_original", (0, 0))
         if isinstance(original, tuple) and len(original) == 2:
-            ow = int(original[0] or 0)
-            oh = int(original[1] or 0)
-            if ow > 0 and oh > 0:
-                asset.dimensions_current = (ow, oh)
-                asset.dimensions_final = (ow, oh)
+            width = int(original[0] or 0)
+            height = int(original[1] or 0)
+            if width > 0 and height > 0:
+                asset.dimensions_current = (width, height)
+                asset.dimensions_final = (width, height)
 
     def analyze_asset_profile(self, asset: AssetRecord) -> None:
+        """Classify the source and build advice without mutating its controls."""
+
         classification = classify_asset(asset)
         merged_tags: list[str] = []
         for tag in [*classification.tags, *asset.classification_tags]:
@@ -119,109 +113,9 @@ class AssetProfileService:
         )
 
     @staticmethod
-    def clamp01(value: object, *, default: float = 0.0) -> float:
-        try:
-            parsed = float(value)
-        except Exception:
-            parsed = default
-        return max(0.0, min(1.0, parsed))
-
-    def apply_analysis_inferred_control_defaults(self, asset: AssetRecord) -> None:
-        analysis = getattr(asset, "analysis", None)
-        settings = getattr(getattr(asset, "edit_state", None), "settings", None)
-        if analysis is None or settings is None:
-            return
-
-        tags = {str(tag).strip().lower() for tag in (asset.classification_tags or []) if str(tag).strip()}
-        pixel_like = ("pixel_art" in tags) or ("sprite_sheet" in tags)
-        photo_like = "photo" in tags
-
-        noise = self.clamp01(getattr(analysis, "noise_score", 0.0))
-        compression = self.clamp01(getattr(analysis, "compression_score", 0.0))
-        blur = self.clamp01(getattr(analysis, "blur_score", 0.0))
-        edge_weakness = self.clamp01(1.0 - self.clamp01(getattr(analysis, "edge_integrity_score", 1.0)))
-        resolution_need = self.clamp01(getattr(analysis, "resolution_need_score", 0.0))
-
-        noise_strength = self.clamp01((noise - 0.08) / 0.92)
-        compression_strength = self.clamp01((compression - 0.03) / 0.97)
-        blur_strength = self.clamp01((blur - 0.12) / 0.88)
-
-        settings.cleanup.denoise = max(settings.cleanup.denoise, round(0.04 + (0.46 * noise_strength), 2))
-        settings.cleanup.artifact_removal = max(
-            settings.cleanup.artifact_removal,
-            round(0.04 + (0.62 * compression_strength), 2),
-        )
-        settings.cleanup.banding_removal = max(
-            settings.cleanup.banding_removal,
-            round(0.02 + (0.42 * compression_strength), 2),
-        )
-        settings.cleanup.halo_cleanup = max(
-            settings.cleanup.halo_cleanup,
-            round(0.02 + (0.28 * ((compression_strength + edge_weakness) / 2.0)), 2),
-        )
-
-        settings.detail.sharpen_amount = max(settings.detail.sharpen_amount, round(0.05 + (0.50 * blur_strength), 2))
-        settings.detail.clarity = max(settings.detail.clarity, round(0.03 + (0.38 * blur_strength), 2))
-        settings.detail.sharpen_threshold = max(
-            settings.detail.sharpen_threshold,
-            round(0.03 + (0.24 * noise_strength), 2),
-        )
-
-        if pixel_like:
-            settings.pixel.scale_method = ScaleMethod.NEAREST
-            settings.pixel.pixel_snap = True
-            settings.detail.texture = max(settings.detail.texture, 0.12)
-            settings.ai.deblur_strength = max(settings.ai.deblur_strength, round(0.04 + (0.24 * blur_strength), 2))
-        elif photo_like:
-            settings.pixel.scale_method = ScaleMethod.LANCZOS
-            settings.pixel.pixel_snap = False
-            settings.detail.texture = max(settings.detail.texture, round(0.06 + (0.30 * blur_strength), 2))
-            settings.ai.deblur_strength = max(settings.ai.deblur_strength, round(0.16 + (0.64 * blur_strength), 2))
-            settings.ai.detail_reconstruct = max(
-                settings.ai.detail_reconstruct,
-                round(0.08 + (0.48 * blur_strength), 2),
-            )
-        else:
-            settings.ai.deblur_strength = max(settings.ai.deblur_strength, round(0.08 + (0.42 * blur_strength), 2))
-
-        if (not pixel_like) and edge_weakness > 0.2:
-            settings.edges.edge_refine = max(settings.edges.edge_refine, round(0.12 + (0.60 * edge_weakness), 2))
-            settings.edges.antialias = max(settings.edges.antialias, round(0.08 + (0.42 * edge_weakness), 2))
-
-        if resolution_need >= 0.72:
-            inferred_upscale = min(4.0, round(1.0 + (1.5 * resolution_need), 2))
-            settings.ai.upscale_factor = max(settings.ai.upscale_factor, inferred_upscale)
-
-        if asset.format is AssetFormat.GIF and asset.capabilities.is_animated:
-            stress = self.clamp01(getattr(analysis, "gif_palette_stress", 0.0))
-            settings.gif.dither_strength = max(settings.gif.dither_strength, round(0.05 + (0.5 * stress), 2))
-            if stress >= 0.6:
-                settings.gif.palette_size = min(int(settings.gif.palette_size), 128)
-
-        asset.edit_state = clamp_edit_state_for_mode(asset.edit_state, mode=asset.edit_state.mode)
-
-    @staticmethod
-    def apply_recommended_export_defaults(asset: AssetRecord) -> None:
-        recs = getattr(asset, "recommendations", None)
-        if recs is None:
-            return
-
-        profile_value = getattr(recs, "suggested_export_profile", None)
-        if isinstance(profile_value, str) and profile_value:
-            try:
-                asset.edit_state.settings.export.export_profile = ExportProfile(profile_value)
-            except Exception:
-                pass
-
-        format_value = getattr(recs, "suggested_export_format", None)
-        if isinstance(format_value, str) and format_value:
-            try:
-                asset.edit_state.settings.export.format = ExportFormat(format_value)
-            except Exception:
-                pass
-
-    @staticmethod
     def probe_image_metadata(asset: AssetRecord) -> None:
+        """Copy measurable source facts into capabilities and neutral controls."""
+
         raw_path = asset.cache_path or asset.source_uri
         if not raw_path:
             return
@@ -240,61 +134,81 @@ class AssetProfileService:
             return
 
         try:
-            with Image.open(file_path) as im:
-                im.load()
-                w, h = im.size
+            with Image.open(file_path) as image:
+                source_info = dict(getattr(image, "info", {}) or {})
+                frame_count = max(1, int(getattr(image, "n_frames", 1) or 1))
+                is_animated = bool(getattr(image, "is_animated", False)) or frame_count > 1
+                image.seek(0)
+                image.load()
+                width, height = image.size
 
-                previous_original = tuple(getattr(asset, "dimensions_original", (0, 0)) or (0, 0))
-                if w > 0 and h > 0:
-                    measured = (int(w), int(h))
+                previous_original = tuple(
+                    getattr(asset, "dimensions_original", (0, 0)) or (0, 0)
+                )
+                if width > 0 and height > 0:
+                    measured = (int(width), int(height))
                     asset.dimensions_original = measured
 
-                    current_dims = tuple(getattr(asset, "dimensions_current", (0, 0)) or (0, 0))
+                    current_dims = tuple(
+                        getattr(asset, "dimensions_current", (0, 0)) or (0, 0)
+                    )
                     if current_dims == (0, 0) or current_dims == previous_original:
                         asset.dimensions_current = measured
 
-                    final_dims = tuple(getattr(asset, "dimensions_final", (0, 0)) or (0, 0))
+                    final_dims = tuple(
+                        getattr(asset, "dimensions_final", (0, 0)) or (0, 0)
+                    )
                     if final_dims == (0, 0) or final_dims == previous_original:
                         asset.dimensions_final = measured
-                bands = set(getattr(im, "getbands", lambda: ())())
-                mode = str(getattr(im, "mode", ""))
-                has_alpha = ("A" in bands) or (mode in {"RGBA", "LA", "PA"})
-                asset.capabilities.has_alpha = bool(has_alpha)
 
-                n_frames = int(getattr(im, "n_frames", 1) or 1)
-                is_animated = bool(getattr(im, "is_animated", False)) or n_frames > 1
+                bands = set(getattr(image, "getbands", lambda: ())())
+                mode = str(getattr(image, "mode", ""))
+                asset.capabilities.has_alpha = bool(
+                    ("A" in bands)
+                    or (mode in {"RGBA", "LA", "PA"})
+                    or ("transparency" in source_info)
+                )
                 asset.capabilities.is_animated = bool(is_animated)
+
+                source_dpi = AssetProfileService._normalize_source_dpi(
+                    source_info.get("dpi")
+                )
+                source_loop_count: int | None = None
+                if asset.format is AssetFormat.GIF and "loop" in source_info:
+                    source_loop_count = AssetProfileService._normalize_source_loop_count(
+                        source_info.get("loop")
+                    )
+                asset.source_metadata = SourceImageMetadata(
+                    color_mode=mode,
+                    dpi=source_dpi,
+                    frame_count=frame_count,
+                    loop_count=source_loop_count,
+                )
+                if source_dpi is not None:
+                    asset.edit_state.settings.pixel.dpi = source_dpi
+
+                if asset.format is AssetFormat.GIF:
+                    loop_present = "loop" in source_info
+                    gif = asset.edit_state.settings.gif
+                    gif.frame_delay_ms = 0
+                    gif.loop = loop_present
+                    gif.loop_count = source_loop_count if loop_present else None
         except Exception:
             return
 
     @staticmethod
-    def extension_for_format(fmt_value: str) -> str:
-        mapping = {
-            "jpg": ".jpg",
-            "png": ".png",
-            "webp": ".webp",
-            "gif": ".gif",
-            "ico": ".ico",
-            "tiff": ".tiff",
-            "bmp": ".bmp",
-        }
-        return mapping.get(fmt_value, ".bin")
+    def _normalize_source_dpi(raw_value: object) -> int | None:
+        if isinstance(raw_value, (tuple, list)):
+            raw_value = raw_value[0] if raw_value else None
+        try:
+            dpi = int(round(float(raw_value)))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return dpi if 1 <= dpi <= 2400 else None
 
     @staticmethod
-    def asset_format_from_extension(ext: str) -> AssetFormat:
-        cleaned = str(ext or "").strip().lower().lstrip(".")
-        return AssetProfileService.asset_format_from_detected(cleaned)
-
-    @staticmethod
-    def asset_format_from_detected(detected_format: str) -> AssetFormat:
-        mapping = {
-            "jpeg": AssetFormat.JPG,
-            "jpg": AssetFormat.JPG,
-            "png": AssetFormat.PNG,
-            "webp": AssetFormat.WEBP,
-            "gif": AssetFormat.GIF,
-            "bmp": AssetFormat.BMP,
-            "ico": AssetFormat.ICO,
-            "tiff": AssetFormat.TIFF,
-        }
-        return mapping.get(str(detected_format).lower(), AssetFormat.UNKNOWN)
+    def _normalize_source_loop_count(raw_value: object) -> int:
+        try:
+            return max(0, int(raw_value))
+        except (TypeError, ValueError, OverflowError):
+            return 0

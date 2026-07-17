@@ -3,7 +3,7 @@
     {
       "id": "pokemon_db",
       "name": "PokemonDB",
-      "areas": [
+      "pages": [
         {
           "id": "sprites_root",
           "label": "Sprites (All Pokemon)",
@@ -14,7 +14,7 @@
     {
       "id": "project_pokemon",
       "name": "Project Pokemon",
-      "areas": [
+      "pages": [
         {
           "id": "spriteindex_root",
           "label": "Sprite Index (root)",
@@ -25,7 +25,7 @@
     {
       "id": "pokeapi",
       "name": "PokeAPI (metadata)",
-      "areas": [
+      "pages": [
         {
           "id": "docs",
           "label": "Docs (metadata + sprite URLs)",

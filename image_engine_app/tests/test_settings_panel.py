@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import sys
 import unittest
+from unittest.mock import patch
 
 
 try:
@@ -16,7 +17,15 @@ except Exception:  # pragma: no cover - optional dependency in some environments
 
 from PIL import Image  # noqa: E402
 
-from image_engine_app.engine.models import AssetFormat, AssetRecord, EditMode  # noqa: E402
+from image_engine_app.app.ui_controller import ImageEngineUIController  # noqa: E402
+from image_engine_app.engine.analyze.background_scan import BackgroundScanResult  # noqa: E402
+from image_engine_app.engine.models import (  # noqa: E402
+    AssetFormat,
+    AssetRecord,
+    EditMode,
+    SourceImageMetadata,
+)
+from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY  # noqa: E402
 from image_engine_app.ui.common.state_bindings import EngineUIState  # noqa: E402
 from image_engine_app.ui.main_window.settings_panel import SettingsPanel  # noqa: E402
 
@@ -33,6 +42,36 @@ class SettingsPanelTests(unittest.TestCase):
         panel = SettingsPanel()
         ui_state = EngineUIState()
         panel.bind_state(ui_state)
+        controller = ImageEngineUIController()
+
+        def apply_setting(group_name: str, field_name: str, value: object) -> None:
+            asset = ui_state.active_asset
+            if asset is None:
+                return
+            controller.update_asset_setting(asset, group_name, field_name, value)
+            ui_state.set_active_asset(asset)
+
+        def apply_output_size(choice_key: str) -> None:
+            asset = ui_state.active_asset
+            if asset is None:
+                return
+            controller.apply_asset_output_size(asset, choice_key)
+            ui_state.set_active_asset(asset)
+
+        def reset_settings(field_paths: object) -> None:
+            asset = ui_state.active_asset
+            if asset is None:
+                return
+            controller.reset_asset_settings(
+                asset,
+                tuple(field_paths or ()),
+                refresh_final=False,
+            )
+            ui_state.set_active_asset(asset)
+
+        ui_state.edit_setting_requested.connect(apply_setting)
+        ui_state.edit_settings_reset_requested.connect(reset_settings)
+        ui_state.output_size_requested.connect(apply_output_size)
         return app, owns_app, panel, ui_state
 
     def test_recent_controls_disable_without_active_asset(self) -> None:
@@ -40,15 +79,11 @@ class SettingsPanelTests(unittest.TestCase):
 
         try:
             self.assertIsNotNone(panel._temperature)
-            self.assertIsNotNone(panel._ai_bg_remove)
             self.assertIsNotNone(panel._export_format)
-            self.assertIsNotNone(panel._export_profile)
             self.assertIsNotNone(panel._ico_sizes)
 
             self.assertFalse(panel._temperature.isEnabled())
-            self.assertFalse(panel._ai_bg_remove.isEnabled())
             self.assertFalse(panel._export_format.isEnabled())
-            self.assertFalse(panel._export_profile.isEnabled())
             self.assertFalse(panel._ico_sizes.isEnabled())
         finally:
             panel.close()
@@ -64,10 +99,36 @@ class SettingsPanelTests(unittest.TestCase):
             ui_state.set_active_asset(asset)
 
             self.assertTrue(panel._temperature.isEnabled())
-            self.assertTrue(panel._ai_bg_remove.isEnabled())
             self.assertTrue(panel._export_format.isEnabled())
-            self.assertTrue(panel._export_profile.isEnabled())
-            self.assertTrue(panel._ico_sizes.isEnabled())
+            self.assertFalse(panel._ico_sizes.isEnabled())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_republishing_same_asset_reuses_the_source_background_scan(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                source = Path(temp_dir) / "sprite.png"
+                Image.new("RGBA", (16, 16), (120, 80, 200, 255)).save(source)
+                asset = AssetRecord(
+                    id="scan-cache",
+                    original_name=source.name,
+                    source_uri=str(source),
+                    cache_path=str(source),
+                    format=AssetFormat.PNG,
+                )
+
+                with patch(
+                    "image_engine_app.ui.main_window.settings_panel.inspect_background_state",
+                    return_value=BackgroundScanResult(),
+                ) as inspect:
+                    ui_state.set_active_asset(asset)
+                    ui_state.set_active_asset(asset)
+
+                self.assertEqual(1, inspect.call_count)
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -90,7 +151,7 @@ class SettingsPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_resize_change_scales_dpi(self) -> None:
+    def test_resize_change_does_not_change_metadata_dpi(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -99,15 +160,58 @@ class SettingsPanelTests(unittest.TestCase):
 
             panel._resize_percent.setValue(200.0)
 
-            self.assertEqual(144, panel._dpi.value())
+            self.assertEqual(72, panel._dpi.value())
             self.assertEqual(200.0, float(asset.edit_state.settings.pixel.resize_percent))
-            self.assertEqual(144, int(asset.edit_state.settings.pixel.dpi))
+            self.assertEqual(72, int(asset.edit_state.settings.pixel.dpi))
         finally:
             panel.close()
             if owns_app and app is not None:
                 app.quit()
 
-    def test_dpi_change_scales_resize_percent(self) -> None:
+    def test_output_size_choice_updates_real_pixel_controls(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-size", original_name="sprite.png")
+            ui_state.set_active_asset(asset)
+
+            index = panel._output_size.findData("height_720")
+            panel._output_size.setCurrentIndex(index)
+
+            self.assertEqual(100.0, asset.edit_state.settings.pixel.resize_percent)
+            self.assertIsNone(asset.edit_state.settings.pixel.width)
+            self.assertEqual(720, asset.edit_state.settings.pixel.height)
+            self.assertEqual(720, panel._target_height.value())
+
+            index = panel._output_size.findData("scale_4x")
+            panel._output_size.setCurrentIndex(index)
+
+            self.assertEqual(400.0, asset.edit_state.settings.pixel.resize_percent)
+            self.assertIsNone(asset.edit_state.settings.pixel.width)
+            self.assertIsNone(asset.edit_state.settings.pixel.height)
+            self.assertEqual(400.0, panel._resize_percent.value())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_manual_size_controls_switch_chooser_to_custom(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-custom-size", original_name="sprite.png")
+            ui_state.set_active_asset(asset)
+
+            panel._target_width.setValue(512)
+
+            self.assertEqual("custom", panel._output_size.currentData())
+            self.assertEqual(512, asset.edit_state.settings.pixel.width)
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_dpi_change_does_not_resize_pixels(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
         try:
@@ -116,9 +220,89 @@ class SettingsPanelTests(unittest.TestCase):
 
             panel._dpi.setValue(144)
 
-            self.assertEqual(200.0, float(panel._resize_percent.value()))
-            self.assertEqual(200.0, float(asset.edit_state.settings.pixel.resize_percent))
+            self.assertEqual(100.0, float(panel._resize_percent.value()))
+            self.assertEqual(100.0, float(asset.edit_state.settings.pixel.resize_percent))
             self.assertEqual(144, int(asset.edit_state.settings.pixel.dpi))
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_visual_control_sends_one_edit_request_and_updates_state(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-live-final", original_name="sprite.png")
+            ui_state.set_active_asset(asset)
+            calls: list[tuple[str, str, object]] = []
+            ui_state.edit_setting_requested.connect(lambda group, field, value: calls.append((group, field, value)))
+
+            panel._brightness.setValue(0.25)
+
+            self.assertEqual([("color", "brightness", 0.25)], calls)
+            self.assertEqual(0.25, asset.edit_state.settings.color.brightness)
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_changed_control_shows_single_reset_and_preserves_other_edits(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(id="asset-reset-one", original_name="sprite.png")
+            ui_state.set_active_asset(asset)
+            panel._brightness.setValue(0.25)
+            panel._contrast.setValue(0.4)
+
+            brightness_reset = next(
+                reset
+                for reset, paths in panel._reset_bindings
+                if paths == (("color", "brightness"),)
+            )
+            contrast_reset = next(
+                reset
+                for reset, paths in panel._reset_bindings
+                if paths == (("color", "contrast"),)
+            )
+            self.assertFalse(brightness_reset.isHidden())
+            self.assertFalse(contrast_reset.isHidden())
+
+            brightness_reset.click()
+
+            self.assertEqual(0.0, asset.edit_state.settings.color.brightness)
+            self.assertEqual(0.4, asset.edit_state.settings.color.contrast)
+            self.assertTrue(brightness_reset.isHidden())
+            self.assertFalse(contrast_reset.isHidden())
+        finally:
+            panel.close()
+            if owns_app and app is not None:
+                app.quit()
+
+    def test_source_facts_are_shown_separately_from_editable_controls(self) -> None:
+        app, owns_app, panel, ui_state = self._setup_panel()
+
+        try:
+            asset = AssetRecord(
+                id="asset-source-facts",
+                original_name="sprite.gif",
+                format=AssetFormat.GIF,
+                dimensions_original=(32, 48),
+                source_metadata=SourceImageMetadata(
+                    color_mode="P",
+                    dpi=144,
+                    frame_count=12,
+                    loop_count=0,
+                ),
+            )
+            asset.capabilities.has_alpha = True
+            asset.capabilities.is_animated = True
+            ui_state.set_active_asset(asset)
+
+            self.assertIn("GIF | 32 x 48 px | P | alpha | DPI 144", panel._pixel_source_info.text())
+            self.assertIn("12 frames", panel._gif_source_info.text())
+            self.assertIn("continuous loop", panel._gif_source_info.text())
+            self.assertEqual(0, panel._frame_delay.value())
         finally:
             panel.close()
             if owns_app and app is not None:
@@ -150,26 +334,6 @@ class SettingsPanelTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
-    def test_open_encoding_button_emits_signal(self) -> None:
-        app, owns_app, panel, ui_state = self._setup_panel()
-
-        try:
-            asset = AssetRecord(id="asset-6", original_name="expert.png")
-            asset.edit_state.mode = EditMode.EXPERT
-            ui_state.set_active_asset(asset)
-
-            self.assertIsNotNone(panel._open_encoding_window_btn)
-            fired: list[str] = []
-            panel.open_encoding_window_requested.connect(lambda: fired.append("open"))
-
-            panel._open_encoding_window_btn.click()
-
-            self.assertEqual(["open"], fired)
-        finally:
-            panel.close()
-            if owns_app and app is not None:
-                app.quit()
-
     def test_header_updates_with_active_asset(self) -> None:
         app, owns_app, panel, ui_state = self._setup_panel()
 
@@ -177,8 +341,6 @@ class SettingsPanelTests(unittest.TestCase):
             asset = AssetRecord(id="asset-7", original_name="hero.png")
             asset.edit_state.mode = EditMode.ADVANCED
             ui_state.set_active_asset(asset)
-            ui_state.set_mode(EditMode.ADVANCED)
-
             self.assertEqual("EDIT SETTINGS", panel._header_title.text())
             self.assertIn("hero.png", panel._header_subtitle.text())
             self.assertIn("sections available", panel._header_subtitle.text())
@@ -241,10 +403,23 @@ class SettingsPanelTests(unittest.TestCase):
             nav_buttons = panel._toolbox.findChildren(QToolButton, "settingsGroupNavButton")
 
             self.assertEqual(len(SettingsPanel.GROUP_SPECS), len(nav_buttons))
-            self.assertEqual(9, len(nav_buttons))
-            self.assertTrue(all(button.minimumHeight() == 76 for button in nav_buttons))
-            self.assertTrue(all(button.minimumWidth() == 84 for button in nav_buttons))
+            self.assertEqual(8, len(nav_buttons))
+            self.assertTrue(
+                all(
+                    button.minimumHeight() == SHELL_GEOMETRY.settings_tile_height
+                    for button in nav_buttons
+                )
+            )
+            self.assertTrue(
+                all(
+                    button.minimumWidth() == SHELL_GEOMETRY.settings_tile_width
+                    for button in nav_buttons
+                )
+            )
             self.assertEqual("Pixel", nav_buttons[0].text())
+            export_button = next(button for button in nav_buttons if button.text() == "Export")
+            self.assertTrue(bool(export_button.property("linkedExport")))
+            self.assertIn("teal Export button", export_button.toolTip())
         finally:
             panel.close()
             if owns_app and app is not None:

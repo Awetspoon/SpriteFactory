@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from image_engine_app.app.paths import AppPaths
 from image_engine_app.app.preset_store import PresetStore
 from image_engine_app.engine.models import EditState, PresetModel
+from image_engine_app.engine.process.edit_baseline import implied_heavy_jobs
 from image_engine_app.engine.process.preset_compat import (
     PresetCatalogEntry,
     describe_asset_scope,
@@ -81,8 +82,6 @@ class PresetLibrary:
                 continue
             entries.append(entry)
 
-        if compatible_only and asset is not None and not entries:
-            return self.available_entries(asset=None, compatible_only=False)
         return entries
 
     def describe_preset_scope(self, preset_name: str) -> str:
@@ -156,6 +155,10 @@ class PresetLibrary:
     @staticmethod
     def _validate_preset_or_raise(preset: PresetModel) -> None:
         try:
-            apply_preset_to_edit_state(preset, EditState(mode=preset.mode_min))
+            updated = apply_preset_to_edit_state(preset, EditState(mode=preset.mode_min))
         except PresetApplyError as exc:
             raise ValueError(str(exc)) from exc
+
+        has_heavy_step = bool(implied_heavy_jobs(preset, updated))
+        preset.uses_heavy_tools = bool(preset.uses_heavy_tools or has_heavy_step)
+        preset.requires_apply = bool(preset.requires_apply or preset.uses_heavy_tools)

@@ -22,6 +22,7 @@ import platform
 import subprocess
 import sys
 import time
+import tomllib
 from typing import Any
 
 from image_engine_app.app.paths import ensure_app_paths
@@ -114,18 +115,71 @@ def _run_unittest(project_root: Path) -> tuple[bool, dict[str, Any]]:
     }
 
 
+def _read_project_version(project_root: Path) -> str:
+    manifest = project_root / "pyproject.toml"
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    project = data.get("project", {})
+    version = str(project.get("version", "")).strip() if isinstance(project, dict) else ""
+    if not version:
+        raise ValueError("pyproject.toml does not define project.version")
+    return version
+
+
 def _check_packaging_files(project_root: Path) -> tuple[bool, dict[str, Any]]:
+    version = _read_project_version(project_root)
     paths = {
         "project_manifest": project_root / "pyproject.toml",
         "onedir_spec": project_root / "spritefactory.spec",
         "onefile_spec": project_root / "spritefactory_onefile.spec",
+        "onefile_build_script": project_root / "build_exe_onefile.ps1",
         "runtime_hook_dir": project_root / "pyinstaller_rthooks",
-        "icon": project_root / "spritefactory.ico",
+        "icon": project_root / "image_engine_app" / "assets" / "icons" / "spritefactory_pro.ico",
+        "shell_chevron": project_root / "image_engine_app" / "ui" / "common" / "chevron_down.svg",
         "version_info": project_root / "pyinstaller_version_info.py",
+        "release_notes": project_root / "docs" / f"RELEASE_{version}.md",
     }
     missing = [k for k, p in paths.items() if not p.exists()]
     ok = len(missing) == 0
     return ok, {"missing": missing, "paths": {k: str(p) for k, p in paths.items()}}
+
+
+def _check_release_metadata(project_root: Path) -> tuple[bool, dict[str, Any]]:
+    version = _read_project_version(project_root)
+    expected_screenshot = f"docs/sprite-factory-pro-{version}-ui.png"
+    expected_release_notes = f"docs/RELEASE_{version}.md"
+    sources = {
+        "readme": project_root / "README.md",
+        "version_info": project_root / "pyinstaller_version_info.py",
+        "window": project_root / "image_engine_app" / "ui" / "main_window" / "main_window.py",
+        "release_notes": project_root / expected_release_notes,
+        "screenshot": project_root / expected_screenshot,
+    }
+    mismatches: list[str] = []
+    for name, path in sources.items():
+        if not path.exists():
+            mismatches.append(f"{name}: missing {path}")
+
+    if not mismatches:
+        readme = sources["readme"].read_text(encoding="utf-8")
+        version_info = sources["version_info"].read_text(encoding="utf-8")
+        window_source = sources["window"].read_text(encoding="utf-8")
+        release_notes = sources["release_notes"].read_text(encoding="utf-8")
+        expectations = {
+            "README release link": expected_release_notes in readme,
+            "README screenshot": expected_screenshot in readme,
+            "EXE product version": f'StringStruct("ProductVersion", "{version}")' in version_info,
+            "EXE file version": f'StringStruct("FileVersion", "{version}")' in version_info,
+            "window title": f"Sprite Factory Pro v{version}" in window_source,
+            "release heading": f"Sprite Factory Pro {version}" in release_notes,
+        }
+        mismatches.extend(label for label, present in expectations.items() if not present)
+
+    return not mismatches, {
+        "version": version,
+        "expected_release_notes": expected_release_notes,
+        "expected_screenshot": expected_screenshot,
+        "mismatches": mismatches,
+    }
 
 
 def _write_reports(app_data_dir: Path, report: dict[str, Any]) -> tuple[Path, Path]:
@@ -181,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     checks.append(_run_check("structure", lambda: _check_structure(project_root)))
     checks.append(_run_check("compileall", lambda: _check_compileall(project_root)))
     checks.append(_run_check("packaging_files", lambda: _check_packaging_files(project_root)))
+    checks.append(_run_check("release_metadata", lambda: _check_release_metadata(project_root)))
     if not args.skip_tests:
         checks.append(_run_check("unit_tests", lambda: _run_unittest(project_root)))
 

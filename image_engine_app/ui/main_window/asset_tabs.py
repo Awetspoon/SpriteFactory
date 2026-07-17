@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY
+
 
 @dataclass(frozen=True)
 class AssetTabItem:
@@ -160,11 +162,16 @@ class WorkspaceAssetTabs(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(6)
+        outer.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.compact_gap,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.compact_gap,
+        )
+        outer.setSpacing(SHELL_GEOMETRY.compact_gap)
 
         title_row = QHBoxLayout()
-        title_row.setSpacing(8)
+        title_row.setSpacing(SHELL_GEOMETRY.gap)
         title = QLabel("Workspace", self)
         title.setObjectName("shellTitle")
         title_row.addWidget(title, 0)
@@ -176,14 +183,14 @@ class WorkspaceAssetTabs(QFrame):
         outer.addWidget(self._summary_label)
 
         paging = QHBoxLayout()
-        paging.setSpacing(6)
+        paging.setSpacing(SHELL_GEOMETRY.compact_gap)
 
         self._window_label.setObjectName("shellSubtitle")
         self._window_label.setVisible(False)
         paging.addWidget(self._window_label)
 
         self._window_section_combo.setObjectName("workspaceSectionCombo")
-        self._window_section_combo.setFixedWidth(62)
+        self._window_section_combo.setFixedWidth(SHELL_GEOMETRY.workspace_section_width)
         self._window_section_combo.setVisible(False)
         self._window_section_combo.currentIndexChanged.connect(self._on_window_section_changed)
         paging.addWidget(self._window_section_combo, 0)
@@ -192,7 +199,10 @@ class WorkspaceAssetTabs(QFrame):
         self._window_prev_button.setText("‹")
         self._window_prev_button.setToolTip("Show previous workspace section")
         self._window_prev_button.setAutoRaise(False)
-        self._window_prev_button.setFixedSize(24, 24)
+        self._window_prev_button.setFixedSize(
+            SHELL_GEOMETRY.workspace_pager_size,
+            SHELL_GEOMETRY.workspace_pager_size,
+        )
         self._window_prev_button.setEnabled(False)
         self._window_prev_button.setVisible(False)
         self._window_prev_button.clicked.connect(self.window_prev_requested.emit)
@@ -202,7 +212,10 @@ class WorkspaceAssetTabs(QFrame):
         self._window_next_button.setText("›")
         self._window_next_button.setToolTip("Show next workspace section")
         self._window_next_button.setAutoRaise(False)
-        self._window_next_button.setFixedSize(24, 24)
+        self._window_next_button.setFixedSize(
+            SHELL_GEOMETRY.workspace_pager_size,
+            SHELL_GEOMETRY.workspace_pager_size,
+        )
         self._window_next_button.setEnabled(False)
         self._window_next_button.setVisible(False)
         self._window_next_button.clicked.connect(self.window_next_requested.emit)

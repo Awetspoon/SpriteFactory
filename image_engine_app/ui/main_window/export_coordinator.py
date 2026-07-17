@@ -38,6 +38,13 @@ class ExportCoordinator:
             self._window._status(f"Export failed: {exc}")
             return
 
+        if not bool(getattr(result, "success", False)):
+            message = str(getattr(result, "message", "The image could not be exported"))
+            output_path = getattr(result, "output_path", None)
+            target = f" | target: {output_path}" if output_path is not None else ""
+            self._window._status(f"{message}{target}")
+            return
+
         fallback_kind = getattr(result, "fallback_kind", None)
         if fallback_kind == "metadata":
             kind = "fallback metadata"
@@ -161,8 +168,7 @@ class ExportCoordinator:
             return None
 
         target = ordered[next_idx]
-        self._window.ui_state.set_active_asset(target)
-        self._window._sync_session_active_asset(target)
+        self._window._activate_asset(target)
         return target
 
     def _app_paths(self):

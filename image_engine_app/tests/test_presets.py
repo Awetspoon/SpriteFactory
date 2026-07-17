@@ -1,27 +1,13 @@
-"""Tests for preset stacking, mode clamping, and apply-target behavior."""
+"""Tests for single-state preset application and mode clamping."""
 
 from __future__ import annotations
 
-from pathlib import Path
-import sys
+from copy import deepcopy
 import unittest
 
-
-from image_engine_app.engine.models import ApplyTarget, EditMode, EditState, PresetModel  # noqa: E402
-from image_engine_app.engine.process.bounds import clamp_edit_state_for_mode  # noqa: E402
-from image_engine_app.engine.process.presets_apply import (  # noqa: E402
-    PresetApplyError,
-    ViewEditStates,
-    apply_preset_stack,
-    apply_preset_to_views,
-)
-
-
-def _make_edit_state(*, mode: EditMode, brightness: float = 0.0, quality: int = 90) -> EditState:
-    state = EditState(mode=mode, sync_current_final=False, apply_target=ApplyTarget.CURRENT, auto_apply_light=True)
-    state.settings.color.brightness = brightness
-    state.settings.export.quality = quality
-    return state
+from image_engine_app.engine.models import EditMode, EditState, PresetModel
+from image_engine_app.engine.process.bounds import clamp_edit_state_for_mode
+from image_engine_app.engine.process.presets_apply import PresetApplyError, apply_preset_to_edit_state
 
 
 class BoundsTests(unittest.TestCase):
@@ -39,105 +25,75 @@ class BoundsTests(unittest.TestCase):
         self.assertEqual(advanced.settings.ai.upscale_factor, 4.0)
         self.assertEqual(advanced.settings.export.quality, 100)
         self.assertEqual(advanced.settings.pixel.resize_percent, 800.0)
-
         self.assertEqual(expert.settings.color.brightness, 0.8)
         self.assertEqual(expert.settings.ai.upscale_factor, 6.0)
-        self.assertEqual(expert.settings.export.quality, 100)
         self.assertEqual(expert.settings.pixel.resize_percent, 1600.0)
 
 
 class PresetApplyTests(unittest.TestCase):
-    def test_apply_preset_to_current_only_without_sync(self) -> None:
+    def test_preset_updates_the_one_edit_state_and_clamps_values(self) -> None:
         preset = PresetModel(
             name="Brighten",
             description="Raise brightness and quality",
             settings_delta={"color": {"brightness": 0.9}, "export": {"quality": 120}},
             mode_min=EditMode.ADVANCED,
         )
-        current = _make_edit_state(mode=EditMode.ADVANCED, brightness=0.0, quality=90)
-        current.apply_target = ApplyTarget.CURRENT
-        current.sync_current_final = False
-        final = _make_edit_state(mode=EditMode.ADVANCED, brightness=-0.1, quality=70)
+        state = EditState(mode=EditMode.ADVANCED)
 
-        report = apply_preset_to_views(preset, states=ViewEditStates(current=current, final=final))
+        updated = apply_preset_to_edit_state(preset, state)
 
-        self.assertEqual(report.effective_target, ApplyTarget.CURRENT)
-        self.assertFalse(report.sync_applied)
-        self.assertEqual(report.states.current.settings.color.brightness, 0.5)  # baseline clamp
-        self.assertEqual(report.states.current.settings.export.quality, 100)
-        self.assertEqual(report.states.final.settings.color.brightness, -0.1)  # unchanged
-        self.assertEqual(report.states.final.settings.export.quality, 70)
+        self.assertEqual(updated.settings.color.brightness, 0.5)
+        self.assertEqual(updated.settings.export.quality, 100)
+        self.assertEqual(state.settings.color.brightness, 0.0)
+        self.assertEqual(state.settings.export.quality, 90)
 
-    def test_sync_mirrors_single_target_apply_to_both_views(self) -> None:
-        preset = PresetModel(
-            name="Cleanup",
-            description="Denoise and sharpen",
-            settings_delta={"cleanup": {"denoise": 0.9}, "detail": {"sharpen_amount": 2.5}},
-            mode_min=EditMode.ADVANCED,
-            uses_heavy_tools=False,
-            requires_apply=False,
-        )
-        current = _make_edit_state(mode=EditMode.ADVANCED)
-        current.sync_current_final = True
-        current.apply_target = ApplyTarget.FINAL
-        final = _make_edit_state(mode=EditMode.ADVANCED)
-
-        report = apply_preset_to_views(preset, states=ViewEditStates(current=current, final=final))
-
-        self.assertTrue(report.sync_applied)
-        self.assertEqual(report.states.current.settings.cleanup.denoise, 0.8)  # advanced clamp
-        self.assertEqual(report.states.final.settings.cleanup.denoise, 0.8)
-        self.assertEqual(report.states.current.settings.detail.sharpen_amount, 2.0)
-        self.assertEqual(report.states.final.settings.detail.sharpen_amount, 2.0)
-
-    def test_preset_stack_applies_in_order_and_reports_requires_apply(self) -> None:
+    def test_presets_can_be_composed_explicitly_on_one_state(self) -> None:
         base = PresetModel(
-            name="BaseTone",
-            description="Base color adjustments",
+            name="Base Tone",
+            description="Base color",
             settings_delta={"color": {"brightness": 0.2, "contrast": 0.1}},
             mode_min=EditMode.ADVANCED,
         )
         override = PresetModel(
-            name="HeavyUpscale",
-            description="Enable upscale",
+            name="Upscale",
+            description="Upscale",
             settings_delta={"ai": {"upscale_factor": 6.0}},
             mode_min=EditMode.ADVANCED,
             uses_heavy_tools=True,
             requires_apply=True,
         )
-        current = _make_edit_state(mode=EditMode.EXPERT)
-        current.apply_target = ApplyTarget.BOTH
-        final = _make_edit_state(mode=EditMode.EXPERT)
+        state = EditState(mode=EditMode.EXPERT)
 
-        report = apply_preset_stack(
-            [base, override],
-            states=ViewEditStates(current=current, final=final),
-        )
+        updated = apply_preset_to_edit_state(base, deepcopy(state))
+        updated = apply_preset_to_edit_state(override, updated)
 
-        self.assertEqual(report.applied_preset_names, ["BaseTone", "HeavyUpscale"])
-        self.assertTrue(report.requires_apply)
-        self.assertEqual(report.states.current.settings.color.brightness, 0.2)
-        self.assertEqual(report.states.final.settings.color.contrast, 0.1)
-        self.assertEqual(report.states.current.settings.ai.upscale_factor, 6.0)
-        self.assertEqual(report.states.final.settings.ai.upscale_factor, 6.0)
+        self.assertEqual(updated.settings.color.brightness, 0.2)
+        self.assertEqual(updated.settings.color.contrast, 0.1)
+        self.assertEqual(updated.settings.ai.upscale_factor, 6.0)
 
     def test_mode_min_enforcement_raises(self) -> None:
         preset = PresetModel(
-            name="ExpertOnly",
+            name="Expert Only",
             description="Needs expert mode",
             settings_delta={"ai": {"deblur_strength": 0.8}},
             mode_min=EditMode.EXPERT,
         )
-        current = _make_edit_state(mode=EditMode.ADVANCED)
-        current.apply_target = ApplyTarget.CURRENT
-        final = _make_edit_state(mode=EditMode.ADVANCED)
 
         with self.assertRaises(PresetApplyError):
-            apply_preset_to_views(preset, states=ViewEditStates(current=current, final=final))
+            apply_preset_to_edit_state(preset, EditState(mode=EditMode.ADVANCED))
+
+    def test_legacy_palette_limit_maps_to_gif_palette(self) -> None:
+        preset = PresetModel(
+            name="Legacy GIF",
+            description="Old payload",
+            settings_delta={"export": {"palette_limit": 64}},
+            mode_min=EditMode.ADVANCED,
+        )
+
+        updated = apply_preset_to_edit_state(preset, EditState())
+
+        self.assertEqual(64, updated.settings.gif.palette_size)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-

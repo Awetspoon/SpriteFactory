@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover - optional dependency in some environments
     QApplication = None  # type: ignore[assignment]
     Qt = None  # type: ignore[assignment]
 
-from image_engine_app.engine.models import AssetRecord  # noqa: E402
+from image_engine_app.engine.models import AssetRecord, ExportProfile  # noqa: E402
 from image_engine_app.ui.common.state_bindings import EngineUIState  # noqa: E402
 from image_engine_app.ui.main_window.export_bar import ExportBar  # noqa: E402
 
@@ -76,6 +76,25 @@ class ExportBarWidgetTests(unittest.TestCase):
             actions[1].trigger()
             self.assertEqual(["browse"], browse_calls)
             self.assertEqual(["open"], open_calls)
+        finally:
+            bar.close()
+
+    def test_profile_control_requests_profile_change(self) -> None:
+        bar = ExportBar()
+        ui_state = EngineUIState()
+        bar.bind_state(ui_state)
+        asset = AssetRecord(id="asset-3", original_name="print.png")
+        ui_state.set_active_asset(asset)
+        requests: list[str] = []
+        ui_state.export_profile_requested.connect(requests.append)
+
+        try:
+            print_index = bar._profile_combo.findData(ExportProfile.PRINT.value)
+            self.assertGreaterEqual(print_index, 0)
+            bar._profile_combo.setCurrentIndex(print_index)
+
+            self.assertEqual([ExportProfile.PRINT.value], requests)
+            self.assertEqual(ExportProfile.WEB, asset.edit_state.settings.export.export_profile)
         finally:
             bar.close()
 

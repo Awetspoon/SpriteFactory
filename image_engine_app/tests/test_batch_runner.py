@@ -5,12 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 from image_engine_app.engine.batch.batch_runner import BatchRunner, BatchRunnerConfig, BatchWorkItem  # noqa: E402
+from image_engine_app.engine.export.exporters import ExportResult  # noqa: E402
 from image_engine_app.engine.models import (  # noqa: E402
-    ApplyTarget,
     AssetFormat,
     AssetRecord,
     Capabilities,
@@ -62,8 +64,6 @@ def _make_asset(
         dimensions_final=dims,
     )
     asset.edit_state.mode = EditMode.ADVANCED
-    asset.edit_state.apply_target = ApplyTarget.CURRENT
-    asset.edit_state.sync_current_final = False
     asset.edit_state.settings.export.export_profile = ExportProfile.APP_ASSET if has_alpha else ExportProfile.WEB
     asset.edit_state.settings.export.format = ExportFormat.AUTO
     return asset
@@ -116,6 +116,44 @@ def _write_source_fixture(path: Path, *, fmt: AssetFormat, animated: bool = Fals
 
 
 class BatchRunnerTests(unittest.TestCase):
+    def test_smart_batch_applies_only_first_compatible_preset(self) -> None:
+        asset = _make_asset(
+            asset_id="asset-smart-one",
+            name="enemy_sprite.png",
+            fmt=AssetFormat.PNG,
+            dims=(32, 32),
+            has_alpha=True,
+        )
+        first = PresetModel(
+            name="First Smart",
+            description="",
+            applies_to_formats=["png"],
+            applies_to_tags=["pixel_art"],
+            settings_delta={"cleanup": {"denoise": 0.22}},
+            mode_min=EditMode.ADVANCED,
+        )
+        second = PresetModel(
+            name="Second Smart",
+            description="",
+            applies_to_formats=["png"],
+            applies_to_tags=["pixel_art"],
+            settings_delta={"color": {"brightness": 0.3}},
+            mode_min=EditMode.ADVANCED,
+        )
+
+        runner = BatchRunner(
+            BatchRunnerConfig(
+                preview_skip_mode=True,
+                auto_export=False,
+                auto_preset_rules={"pixel_art": [first, second]},
+            )
+        )
+        report = runner.run([BatchWorkItem(asset=asset, queue_item=_make_queue(asset, 1))])
+
+        self.assertEqual(report.items[0].applied_preset_names, ["First Smart"])
+        self.assertEqual(asset.edit_state.settings.cleanup.denoise, 0.22)
+        self.assertEqual(asset.edit_state.settings.color.brightness, 0.0)
+
     def test_batch_runner_sequential_auto_preset_heavy_and_export(self) -> None:
         pixel_asset = _make_asset(
             asset_id="asset-1",
@@ -124,10 +162,6 @@ class BatchRunnerTests(unittest.TestCase):
             dims=(64, 64),
             has_alpha=True,
         )
-        pixel_asset.edit_state.queued_heavy_jobs = [
-            HeavyJobSpec(id="job-upscale-1", tool=HeavyTool.AI_UPSCALE, params={"factor": 4})
-        ]
-
         photo_asset = _make_asset(
             asset_id="asset-2",
             name="portrait.jpg",
@@ -140,7 +174,13 @@ class BatchRunnerTests(unittest.TestCase):
         pixel_preset = PresetModel(
             name="Pixel Batch Boost",
             description="Boost pixel assets in batch",
-            settings_delta={"color": {"brightness": 0.9}, "cleanup": {"denoise": 0.3}},
+            settings_delta={
+                "color": {"brightness": 0.9},
+                "cleanup": {"denoise": 0.3},
+                "ai": {"upscale_factor": 4.0},
+            },
+            uses_heavy_tools=True,
+            requires_apply=True,
             mode_min=EditMode.ADVANCED,
         )
 
@@ -335,6 +375,47 @@ class BatchRunnerTests(unittest.TestCase):
         self.assertIn("batch_cancelled", event_types)
         self.assertNotIn("batch_complete", event_types)
 
+    def test_failed_encoder_result_marks_batch_item_failed(self) -> None:
+        asset = _make_asset(
+            asset_id="asset-export-failure",
+            name="broken.png",
+            fmt=AssetFormat.PNG,
+            dims=(64, 64),
+            has_alpha=True,
+        )
+        failed_result = ExportResult(
+            success=False,
+            output_path=Path("C:/exports/broken.png"),
+            format=ExportFormat.PNG,
+            bytes_written=0,
+            message="Export failed: disk unavailable",
+        )
+        outcome = SimpleNamespace(
+            plan=SimpleNamespace(prediction=SimpleNamespace()),
+            result=failed_result,
+        )
+        runner = BatchRunner(
+            BatchRunnerConfig(
+                preview_skip_mode=True,
+                auto_export=True,
+                export_dir="C:/exports",
+            )
+        )
+
+        with patch(
+            "image_engine_app.engine.batch.batch_runner.export_asset_to_file",
+            return_value=outcome,
+        ):
+            report = runner.run(
+                [BatchWorkItem(asset=asset, queue_item=_make_queue(asset, 15))]
+            )
+
+        self.assertEqual(0, report.processed_count)
+        self.assertEqual(1, report.failed_count)
+        self.assertEqual(QueueItemStatus.FAILED, report.items[0].queue_item.status)
+        self.assertIs(report.items[0].export_result, failed_result)
+        self.assertIn("disk unavailable", report.items[0].error or "")
+
 
     def test_auto_export_collision_appends_suffix(self) -> None:
         asset = _make_asset(
@@ -408,7 +489,7 @@ class BatchRunnerTests(unittest.TestCase):
             BatchRunnerConfig(
                 preview_skip_mode=True,
                 auto_export=False,
-                per_source_preset_rules={"gif": [incompatible, gif_safe]},
+                auto_preset_rules={"animation": [incompatible, gif_safe]},
             )
         )
         report = runner.run([BatchWorkItem(asset=asset, queue_item=_make_queue(asset, 31))])
@@ -418,6 +499,7 @@ class BatchRunnerTests(unittest.TestCase):
         self.assertAlmostEqual(asset.edit_state.settings.cleanup.denoise, 0.0, places=6)
         self.assertAlmostEqual(asset.edit_state.settings.cleanup.artifact_removal, 0.14, places=6)
         self.assertEqual(asset.edit_state.settings.export.format, ExportFormat.GIF)
+        self.assertEqual(asset.edit_state.settings.gif.palette_size, 256)
 
     @unittest.skipUnless(_pillow_available(), "Pillow required for static batch export test.")
     def test_batch_runner_auto_export_applies_background_removal_when_no_derived_preview_exists(self) -> None:
@@ -443,7 +525,6 @@ class BatchRunnerTests(unittest.TestCase):
             )
             asset.source_uri = str(src)
             asset.cache_path = str(src)
-            asset.derived_current_path = None
             asset.derived_final_path = None
             asset.edit_state.settings.export.format = ExportFormat.PNG
             asset.edit_state.settings.alpha.background_removal_mode = "white"

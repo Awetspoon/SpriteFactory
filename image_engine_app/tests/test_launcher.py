@@ -9,10 +9,26 @@ import unittest
 from unittest.mock import patch
 
 from image_engine_app import launcher
-from image_engine_app.app import main as app_main
+from image_engine_app.app.bootstrap import parse_startup_arguments
+from image_engine_app.ui.desktop_runtime import resolve_runtime_icon_candidates
 
 
 class LauncherTests(unittest.TestCase):
+    def test_app_startup_arguments_do_not_leak_into_qt_arguments(self) -> None:
+        startup = parse_startup_arguments(["--app-data-dir", ".\\runtime", "-platform", "offscreen"])
+
+        self.assertEqual(Path(startup.app_data_dir), Path(".\\runtime"))
+        self.assertFalse(startup.smoke_test)
+        self.assertEqual(startup.qt_args, ("-platform", "offscreen"))
+
+    def test_smoke_test_argument_is_owned_by_the_application(self) -> None:
+        startup = parse_startup_arguments(
+            ["--smoke-test", "--app-data-dir", ".\\runtime", "-platform", "offscreen"]
+        )
+
+        self.assertTrue(startup.smoke_test)
+        self.assertEqual(startup.qt_args, ("-platform", "offscreen"))
+
     def test_extract_cli_app_data_dir_supports_separate_value(self) -> None:
         target = launcher._extract_cli_app_data_dir(["--app-data-dir", ".\\runtime"])
         self.assertEqual(Path(".\\runtime").expanduser().resolve(), target)
@@ -39,7 +55,7 @@ class LauncherTests(unittest.TestCase):
         self.assertFalse(inject_override)
 
     def test_runtime_icon_prefers_multi_size_ico_before_png(self) -> None:
-        names = [path.name for path in app_main._resolve_runtime_icon_candidates()]
+        names = [path.name for path in resolve_runtime_icon_candidates()]
 
         self.assertIn("spritefactory_pro.ico", names)
         self.assertIn("spritefactory_pro.png", names)

@@ -61,6 +61,10 @@ class _FakeWindow:
         if self.ui_state.session is not None:
             self.ui_state.session.active_tab_asset_id = asset.id if asset is not None else None
 
+    def _activate_asset(self, asset: AssetRecord | None) -> None:
+        self.ui_state.set_active_asset(asset)
+        self._sync_session_active_asset(asset)
+
     def _status(self, text: str) -> None:
         self.status_messages.append(text)
 
@@ -96,6 +100,23 @@ class WorkspaceCoordinatorTests(unittest.TestCase):
         self.assertEqual(0, window._workspace_tab_window_start)
         self.assertEqual(80, len(visible))
 
+    def test_register_large_download_batch_opens_first_section(self) -> None:
+        assets = [_asset(f"asset-{idx:04d}") for idx in range(1459)]
+        session = _session(tab_order=[], pinned_tabs=set())
+        window = _FakeWindow(assets=[], session=session)
+
+        coordinator = WorkspaceCoordinator(window)
+        coordinator.register_assets(assets, set_active=True)
+
+        self.assertEqual("asset-0000", window.ui_state.active_asset.id)
+        self.assertEqual(0, window._workspace_tab_window_start)
+        self.assertEqual(1459, len(window._workspace_assets))
+        last_render = window.asset_tabs.calls[-1]
+        self.assertEqual(0, last_render["kwargs"]["window_start"])
+        self.assertEqual(1459, last_render["kwargs"]["total_count"])
+        self.assertEqual(100, len(last_render["items"]))
+        self.assertEqual("asset-0000", last_render["items"][0].asset_id)
+
     def test_asset_selection_heals_stale_state_when_service_reports_no_change(self) -> None:
         assets = [_asset("asset-a"), _asset("asset-b")]
         session = _session(tab_order=[asset.id for asset in assets], pinned_tabs=set())
@@ -111,6 +132,7 @@ class WorkspaceCoordinatorTests(unittest.TestCase):
         self.assertEqual(1, window.ui_state.set_active_asset_calls)
         self.assertTrue(window.asset_tabs.calls)
         self.assertEqual("asset-b", window.asset_tabs.calls[-1]["kwargs"]["active_asset_id"])
+
     def test_pin_request_moves_target_into_visible_window_section(self) -> None:
         assets = [_asset(f"asset-{idx:03d}") for idx in range(150)]
         session = _session(tab_order=[asset.id for asset in assets], pinned_tabs=set())

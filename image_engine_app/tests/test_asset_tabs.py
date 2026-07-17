@@ -118,6 +118,25 @@ class WorkspaceAssetTabsTests(unittest.TestCase):
             if owns_app and app is not None:
                 app.quit()
 
+    def test_large_workspace_first_section_is_unambiguous(self) -> None:
+        app, owns_app, tabs = self._setup_tabs()
+
+        try:
+            tabs.set_tabs(
+                self._items(100),
+                active_asset_id="asset-000",
+                total_count=1459,
+                window_start=0,
+                window_size=100,
+            )
+
+            self.assertEqual("1/15", tabs._window_section_combo.currentText())
+            self.assertIn("Showing assets 1-100 of 1459", tabs._window_section_combo.toolTip())
+        finally:
+            tabs.close()
+            if owns_app and app is not None:
+                app.quit()
+
 
 if __name__ == "__main__":
     unittest.main()

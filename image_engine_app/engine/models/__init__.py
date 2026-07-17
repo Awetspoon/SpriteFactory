@@ -4,7 +4,6 @@ from .asset_record import (
     AISettings,
     AlphaSettings,
     AnalysisSummary,
-    ApplyTarget,
     AssetFormat,
     AssetRecord,
     BackgroundRemovalMode,
@@ -30,20 +29,22 @@ from .asset_record import (
     RecommendationsSummary,
     ScaleMethod,
     SettingsState,
+    SourceImageMetadata,
     SourceType,
 )
 from .presets import ExportComparisonEntry, ExportPrediction, ExportProfileModel, PresetModel
-from .queue_models import JobState, ProgressEvent, QueueItem, QueueItemStatus
+from .queue_models import BatchEditSource, JobState, ProgressEvent, QueueItem, QueueItemStatus
 from .session_state import HistoryAffectsView, HistoryState, HistoryStep, SessionState, TabState
+from .workspace import WorkspaceState
 
 __all__ = [
     "AISettings",
     "AlphaSettings",
     "AnalysisSummary",
-    "ApplyTarget",
     "AssetFormat",
     "AssetRecord",
     "BackgroundRemovalMode",
+    "BatchEditSource",
     "Capabilities",
     "ChromaSubsampling",
     "CleanupSettings",
@@ -78,6 +79,8 @@ __all__ = [
     "ScaleMethod",
     "SessionState",
     "SettingsState",
+    "SourceImageMetadata",
     "SourceType",
     "TabState",
+    "WorkspaceState",
 ]

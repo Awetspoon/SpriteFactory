@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from image_engine_app.engine.models import AssetRecord
-from image_engine_v3.application import WorkspaceStateService
-from image_engine_v3.domain.models import WorkspaceAsset, WorkspaceState
-from image_engine_v3.infrastructure import LegacyWorkspaceStateAdapter
+from image_engine_app.app.services import WorkspaceStateService
+from image_engine_app.engine.models import AssetRecord, WorkspaceState
 from image_engine_app.ui.main_window.asset_tabs import AssetTabItem
 
 
@@ -17,7 +15,29 @@ class WorkspaceCoordinator:
     def __init__(self, window: Any) -> None:
         self._window = window
         self._state_service = WorkspaceStateService()
-        self._state_adapter = LegacyWorkspaceStateAdapter()
+
+    def register_assets(self, assets: list[AssetRecord], *, set_active: bool) -> None:
+        """Add imported assets through the shared workspace-state contract."""
+
+        if not assets:
+            return
+        state = self._build_workspace_state()
+        self._state_service.add_assets(state, list(assets), set_active=set_active)
+        self._render_tabs_from_state(state, update_assets=True)
+        self._window._sync_batch_dialog_items()
+
+    def replace_assets(self, assets: list[AssetRecord], *, preferred_active_id: str | None) -> None:
+        """Replace restored workspace assets without applying new-import defaults."""
+
+        state = self._build_workspace_state()
+        self._state_service.replace_assets(
+            state,
+            list(assets),
+            preferred_active_id=preferred_active_id,
+        )
+        self._render_tabs_from_state(state, update_assets=True)
+        self._window._sync_batch_dialog_items()
+        self._window._refresh_export_prediction()
 
     def on_workspace_asset_selected(self, asset_id: str) -> None:
         state = self._build_workspace_state()
@@ -92,32 +112,17 @@ class WorkspaceCoordinator:
         active_id: str | None,
     ) -> tuple[int, list[AssetRecord]]:
         state = self._build_workspace_state()
-        ordered_workspace = [
-            WorkspaceAsset(
-                id=asset.id,
-                original_name=asset.original_name or "",
-                source_uri=asset.source_uri or "",
-            )
-            for asset in ordered_assets
-        ]
-
-        start, visible_workspace = self._state_service.visible_assets(
+        start, visible = self._state_service.visible_assets(
             state,
-            ordered_assets=ordered_workspace,
+            ordered_assets=ordered_assets,
             active_id=active_id,
         )
         self._window._workspace_tab_window_start = int(state.window_start)
-
-        by_id = {asset.id: asset for asset in ordered_assets}
-        visible = [by_id[asset.id] for asset in visible_workspace if asset.id in by_id]
         return start, visible
 
     def ordered_workspace_assets(self) -> list[AssetRecord]:
         state = self._build_workspace_state()
-        ordered_workspace = self._state_service.ordered_assets(state)
-
-        by_id = {asset.id: asset for asset in self._window._workspace_assets}
-        return [by_id[asset.id] for asset in ordered_workspace if asset.id in by_id]
+        return self._state_service.ordered_assets(state)
 
     def find_workspace_asset(self, asset_id: str) -> AssetRecord | None:
         for asset in self._window._workspace_assets:
@@ -126,26 +131,28 @@ class WorkspaceCoordinator:
         return None
 
     def _build_workspace_state(self) -> WorkspaceState:
-        return self._state_adapter.from_legacy(
+        active_asset = self._window.ui_state.active_asset
+        active_asset_id = active_asset.id if active_asset is not None else None
+        session = self._window.ui_state.session
+        if active_asset_id is None and session is not None:
+            active_asset_id = session.active_tab_asset_id
+
+        return WorkspaceState(
             assets=list(self._window._workspace_assets),
-            session=self._window.ui_state.session,
-            active_asset=self._window.ui_state.active_asset,
-            window_start=int(getattr(self._window, "_workspace_tab_window_start", 0)),
+            session=session,
+            active_asset_id=active_asset_id,
+            window_start=max(0, int(getattr(self._window, "_workspace_tab_window_start", 0))),
             window_size=max(1, int(getattr(self._window, "_workspace_tab_window_size", 100))),
         )
 
     def _sync_from_workspace_state(self, state: WorkspaceState, *, update_assets: bool) -> None:
         if update_assets:
-            keep_ids = [asset.id for asset in state.assets]
-            by_id = {asset.id: asset for asset in self._window._workspace_assets}
-            self._window._workspace_assets = [by_id[asset_id] for asset_id in keep_ids if asset_id in by_id]
+            self._window._workspace_assets = list(state.assets)
 
         self._window._workspace_tab_window_start = int(state.window_start)
-        self._state_adapter.sync_session_back(state, self._window.ui_state.session)
-
-        active_asset = self._state_adapter.resolve_active_asset(state, self._window._workspace_assets)
+        active_asset = self._state_service.find_workspace_asset(state, state.active_asset_id)
         if self._window.ui_state.active_asset is not active_asset:
-            self._window.ui_state.set_active_asset(active_asset)
+            self._window._activate_asset(active_asset)
 
     def _render_tabs_from_state(self, state: WorkspaceState, *, update_assets: bool = False) -> None:
         render = self._state_service.sync_workspace_tabs(state)

@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import unittest
 
 
-from image_engine_app.engine.models import ApplyTarget  # noqa: E402
 from image_engine_app.ui.main_window.control_strip_state import build_control_strip_view_state  # noqa: E402
 
 
@@ -17,36 +16,24 @@ class ControlStripStateTests(unittest.TestCase):
         state = build_control_strip_view_state(None)
 
         self.assertFalse(state.has_asset)
-        self.assertEqual(ApplyTarget.BOTH.value, state.apply_target)
-        self.assertTrue(state.sync_current_final)
-        self.assertTrue(state.auto_apply_light)
         self.assertEqual("No asset", state.queue_badge_text)
 
-    def test_asset_state_uses_edit_state_values_and_normalizes_unknown_target(self) -> None:
+    def test_asset_state_reports_source_final_workflow(self) -> None:
         asset = SimpleNamespace(
-            edit_state=SimpleNamespace(
-                apply_target=SimpleNamespace(value="unknown"),
-                sync_current_final=False,
-                auto_apply_light=False,
-            )
+            edit_state=SimpleNamespace()
         )
 
         state = build_control_strip_view_state(asset)
 
         self.assertTrue(state.has_asset)
-        self.assertEqual(ApplyTarget.BOTH.value, state.apply_target)
-        self.assertFalse(state.sync_current_final)
-        self.assertFalse(state.auto_apply_light)
-        self.assertEqual("Apply", state.apply_button_text)
-        self.assertIn("Views split", state.summary_text)
-        self.assertIn("Auto preview off", state.summary_text)
+        self.assertEqual("Refresh Final", state.run_button_text)
+        self.assertFalse(state.run_heavy)
+        self.assertIn("Current is the source", state.summary_text)
+        self.assertIn("Final updates automatically", state.summary_text)
 
-    def test_heavy_queue_state_changes_apply_copy_and_badge(self) -> None:
+    def test_heavy_queue_state_changes_run_copy_and_badge(self) -> None:
         asset = SimpleNamespace(
             edit_state=SimpleNamespace(
-                apply_target=SimpleNamespace(value=ApplyTarget.CURRENT.value),
-                sync_current_final=True,
-                auto_apply_light=True,
                 queued_heavy_jobs=[object()],
             )
         )
@@ -54,7 +41,8 @@ class ControlStripStateTests(unittest.TestCase):
 
         state = build_control_strip_view_state(asset, heavy_state)
 
-        self.assertEqual("Run 2 Heavy", state.apply_button_text)
+        self.assertEqual("Run 2 Heavy", state.run_button_text)
+        self.assertTrue(state.run_heavy)
         self.assertEqual("Queued: 2", state.queue_badge_text)
         self.assertEqual("queued", state.queue_badge_tone)
 

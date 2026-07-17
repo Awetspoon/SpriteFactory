@@ -1,18 +1,15 @@
-"""Local file/folder/ZIP import coordinator for the main window."""
+"""Local file and folder import coordinator for the main window."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
-
-from image_engine_app.engine.ingest.zip_extract import ZipExtractError, extract_images_only
 
 from PySide6.QtWidgets import QFileDialog
 
 
 class LocalImportCoordinator:
-    """Owns local import actions exposed from the top toolbar."""
+    """Owns the File menu's two distinct add workflows."""
 
     def __init__(self, window: Any) -> None:
         self._window = window
@@ -23,9 +20,9 @@ class LocalImportCoordinator:
 
         paths, _selected = QFileDialog.getOpenFileNames(
             self._window,
-            "Import Image Files",
+            "Add Files to Workspace",
             self._default_import_directory(),
-            self._window._local_file_dialog_filter(),
+            self._window._local_import_dialog_filter(),
         )
         if not paths:
             return
@@ -34,7 +31,7 @@ class LocalImportCoordinator:
             paths,
             recursive=False,
             preserve_structure=False,
-            source_label="Imported files",
+            source_label="Added files",
         )
 
     def import_folder(self) -> None:
@@ -54,38 +51,6 @@ class LocalImportCoordinator:
             recursive=True,
             preserve_structure=True,
             source_label="Imported folder",
-        )
-
-    def import_zip_archive(self) -> None:
-        if not self._has_controller():
-            return
-
-        path, _selected = QFileDialog.getOpenFileName(
-            self._window,
-            "Import ZIP Archive",
-            self._default_import_directory(),
-            "ZIP Files (*.zip);;All Files (*)",
-        )
-        if not path:
-            return
-
-        zip_path = Path(path)
-        try:
-            extracted = self._extract_zip_images(zip_path)
-        except (ZipExtractError, OSError, ValueError) as exc:
-            self._window._show_error("ZIP Import Failed", str(exc))
-            self._window._status(f"ZIP import failed: {exc}")
-            return
-
-        if not extracted:
-            self._window._status(f"ZIP import skipped: no supported images in {zip_path.name}")
-            return
-
-        self._import_sources(
-            extracted,
-            recursive=False,
-            preserve_structure=False,
-            source_label=f"Imported ZIP: {zip_path.name}",
         )
 
     def _has_controller(self) -> bool:
@@ -129,23 +94,15 @@ class LocalImportCoordinator:
             parts.append(f"{len(summary.duplicates)} duplicate(s) skipped")
         if summary.unsupported:
             parts.append(f"{len(summary.unsupported)} unsupported file(s) skipped")
-        if not assets and not summary.duplicates and not summary.unsupported:
+        if summary.failed:
+            parts.append(f"{len(summary.failed)} source(s) failed")
+            self._window._show_error(
+                "Some Sources Could Not Be Added",
+                "\n".join(summary.failed[:20]),
+            )
+        if not assets and not summary.duplicates and not summary.unsupported and not summary.failed:
             parts = [f"{source_label}: no importable files found"]
         self._window._status(" | ".join(parts))
-
-    def _extract_zip_images(self, zip_path: Path) -> list[str]:
-        allowed_exts = set(self._window._supported_local_extensions())
-        extract_root = self._zip_extract_root()
-        extract_root.mkdir(parents=True, exist_ok=True)
-        extract_dir = extract_root / f"{zip_path.stem}_{uuid4().hex[:8]}"
-        return extract_images_only(str(zip_path), str(extract_dir), allowed_exts=allowed_exts)
-
-    def _zip_extract_root(self) -> Path:
-        controller = self._window.controller
-        app_paths = getattr(controller, "app_paths", None) if controller is not None else None
-        if app_paths is not None:
-            return Path(app_paths.cache) / "_local_zip_import"
-        return Path.cwd() / ".cache" / "_local_zip_import"
 
     def _default_import_directory(self) -> str:
         current_export = self._window.export_bar.export_directory()

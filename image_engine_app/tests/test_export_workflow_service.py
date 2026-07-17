@@ -9,7 +9,6 @@ import unittest
 from image_engine_app.app.paths import ensure_app_paths
 from image_engine_app.app.services import export_asset, format_asset_export_prediction, predict_asset_export
 from image_engine_app.engine.models import (
-    ApplyTarget,
     AssetFormat,
     AssetRecord,
     Capabilities,
@@ -32,8 +31,6 @@ def _asset(*, mode: EditMode = EditMode.ADVANCED) -> AssetRecord:
         dimensions_final=(256, 256),
     )
     asset.edit_state.mode = mode
-    asset.edit_state.apply_target = ApplyTarget.BOTH
-    asset.edit_state.sync_current_final = True
     asset.edit_state.settings.export.export_profile = ExportProfile.APP_ASSET
     return asset
 
@@ -60,4 +57,3 @@ class ExportWorkflowServiceTests(unittest.TestCase):
             self.assertTrue(result.output_path.exists())
             self.assertEqual(result.output_path.parent, output_dir)
             self.assertTrue(result.is_stub)
-

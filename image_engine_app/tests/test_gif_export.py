@@ -131,8 +131,8 @@ class AnimatedGifExportTests(unittest.TestCase):
             )
 
             settings = ExportSettings(format=ExportFormat.GIF)
-            light_settings = SettingsState()
-            light_settings.alpha.background_removal_mode = "white"
+            processing_settings = SettingsState()
+            processing_settings.alpha.background_removal_mode = "white"
 
             result = export_image(
                 ExportRequest(
@@ -144,7 +144,7 @@ class AnimatedGifExportTests(unittest.TestCase):
                     asset_id="cutout-test",
                     frame_count=2,
                     has_alpha=True,
-                    light_settings=light_settings,
+                    processing_settings=processing_settings,
                 )
             )
 

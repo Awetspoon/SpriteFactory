@@ -6,10 +6,11 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import zipfile
 
 
 from image_engine_app.engine.ingest.local_ingest import (  # noqa: E402
-    build_local_ingest_queue,
+    ingest_local_sources,
     scan_local_files,
 )
 from image_engine_app.engine.models import AssetFormat, SourceType  # noqa: E402
@@ -42,21 +43,21 @@ class LocalIngestTests(unittest.TestCase):
             _write_file(root / "nested" / "deeper" / "c.gif", _gif_bytes(b"charlie"))
             _write_file(root / "notes.txt", b"unsupported")
 
-            result = build_local_ingest_queue([root], recursive=True, preserve_structure=True)
+            result = ingest_local_sources([root], recursive=True, preserve_structure=True)
 
-            self.assertEqual(len(result.queue), 3)
+            self.assertEqual(len(result.entries), 3)
             self.assertEqual(len(result.duplicates), 1)
             self.assertEqual(len(result.unsupported), 1)
-            self.assertTrue(any(path.name == "dup_copy.png" for path in result.duplicates))
-            self.assertTrue(any(path.name == "notes.txt" for path in result.unsupported))
+            self.assertTrue(any(Path(path).name == "dup_copy.png" for path in result.duplicates))
+            self.assertTrue(any(Path(path).name == "notes.txt" for path in result.unsupported))
 
-            queue_paths = [entry.queue_path for entry in result.queue]
+            queue_paths = [entry.queue_path for entry in result.entries]
             self.assertIn("input_root/a.png", queue_paths)
             self.assertIn("input_root/nested/b.JPG", queue_paths)
             self.assertIn("input_root/nested/deeper/c.gif", queue_paths)
-            self.assertTrue(all(entry.asset.source_type is SourceType.FOLDER_ITEM for entry in result.queue))
+            self.assertTrue(all(entry.asset.source_type is SourceType.FOLDER_ITEM for entry in result.entries))
 
-            formats = {entry.asset.format for entry in result.queue}
+            formats = {entry.asset.format for entry in result.entries}
             self.assertEqual(formats, {AssetFormat.PNG, AssetFormat.JPG, AssetFormat.GIF})
 
     def test_flatten_option_and_non_recursive_folder_scan(self) -> None:
@@ -69,9 +70,9 @@ class LocalIngestTests(unittest.TestCase):
             self.assertEqual(len(scanned), 1)
             self.assertEqual(scanned[0].relative_path.as_posix(), "top.png")
 
-            result = build_local_ingest_queue([root], recursive=False, flatten=True)
-            self.assertEqual(len(result.queue), 1)
-            self.assertEqual(result.queue[0].queue_path, "top.png")
+            result = ingest_local_sources([root], recursive=False, flatten=True)
+            self.assertEqual(len(result.entries), 1)
+            self.assertEqual(result.entries[0].queue_path, "top.png")
 
     def test_signature_mismatch_is_marked_unsupported(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -79,11 +80,11 @@ class LocalIngestTests(unittest.TestCase):
             fake_png = root / "fake.png"
             _write_file(fake_png, _jpg_bytes(b"pretend-jpeg"))
 
-            result = build_local_ingest_queue([fake_png], preserve_structure=False)
+            result = ingest_local_sources([fake_png], preserve_structure=False)
 
-            self.assertEqual(len(result.queue), 0)
-            self.assertEqual(result.duplicates, [])
-            self.assertEqual(result.unsupported, [fake_png.resolve()])
+            self.assertEqual(len(result.entries), 0)
+            self.assertEqual(result.duplicates, ())
+            self.assertEqual(result.unsupported, (str(fake_png.resolve()),))
 
     def test_duplicate_detection_can_be_disabled_for_file_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -93,16 +94,42 @@ class LocalIngestTests(unittest.TestCase):
             _write_file(file_one, _png_bytes(b"same-content"))
             _write_file(file_two, _png_bytes(b"same-content"))
 
-            result = build_local_ingest_queue(
+            result = ingest_local_sources(
                 [file_one, file_two],
                 preserve_structure=False,
                 dedupe_by_hash=False,
             )
 
-            self.assertEqual(len(result.queue), 2)
-            self.assertEqual(result.duplicates, [])
-            self.assertEqual([entry.queue_path for entry in result.queue], ["one.png", "two.png"])
-            self.assertTrue(all(entry.asset.source_type is SourceType.FILE for entry in result.queue))
+            self.assertEqual(len(result.entries), 2)
+            self.assertEqual(result.duplicates, ())
+            self.assertEqual([entry.queue_path for entry in result.entries], ["one.png", "two.png"])
+            self.assertTrue(all(entry.asset.source_type is SourceType.FILE for entry in result.entries))
+
+    def test_zip_and_direct_files_share_one_result_and_preserve_archive_members(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            direct = root / "direct.png"
+            archive = root / "bundle.zip"
+            extract_root = root / "extract"
+            _write_file(direct, _png_bytes(b"direct"))
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("nested/sprite.gif", _gif_bytes(b"animated"))
+                bundle.writestr("notes.txt", b"ignored")
+
+            result = ingest_local_sources(
+                [direct, archive],
+                preserve_structure=True,
+                archive_extract_root=extract_root,
+            )
+
+            self.assertEqual(2, len(result.entries))
+            by_name = {entry.asset.original_name: entry for entry in result.entries}
+            self.assertIn("direct.png", by_name)
+            self.assertIn("sprite.gif", by_name)
+            archived = by_name["sprite.gif"]
+            self.assertEqual(str(archive.resolve()), archived.asset.source_uri)
+            self.assertTrue(Path(archived.asset.cache_path).exists())
+            self.assertEqual("bundle/nested/sprite.gif", archived.queue_path)
 
 
 if __name__ == "__main__":

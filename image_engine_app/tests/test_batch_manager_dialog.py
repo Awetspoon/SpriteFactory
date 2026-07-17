@@ -15,6 +15,7 @@ except Exception:  # pragma: no cover - optional dependency in some environments
     QProgressBar = None  # type: ignore[assignment]
 
 from image_engine_app.ui.windows.batch_manager import BatchManagerDialog  # noqa: E402
+from image_engine_app.engine.models import BatchEditSource  # noqa: E402
 
 
 @unittest.skipIf(QApplication is None, "PySide6 not installed")
@@ -44,8 +45,7 @@ class BatchManagerDialogTests(unittest.TestCase):
         self.assertEqual(options.export_name_template, "{stem}")
         self.assertEqual(options.export_directory, "C:/Exports/Dialog")
         self.assertEqual(options.selected_asset_ids, ("asset-1", "asset-2"))
-        self.assertFalse(options.apply_active_edits)
-        self.assertFalse(options.apply_selected_preset)
+        self.assertEqual(options.edit_source, BatchEditSource.KEEP_EACH)
         self.assertIsNone(options.selected_preset_name)
         self.assertIsNone(options.background_removal_override)
 
@@ -66,24 +66,24 @@ class BatchManagerDialogTests(unittest.TestCase):
         self.assertTrue(dialog._queue_more_btn.isEnabled())
         self.assertTrue(dialog._run_options_btn.isEnabled())
 
-    def test_compact_menus_keep_batch_options_wired(self) -> None:
+    def test_run_options_and_edit_source_are_independent(self) -> None:
         dialog = BatchManagerDialog()
         dialog.set_queue_assets([
             ("asset-1", "sprite_a.png"),
         ])
 
-        self.assertTrue(dialog.current_options().auto_preset)
         self.assertTrue(dialog.current_options().auto_export)
         self.assertTrue(dialog.current_options().preview_skip_mode)
+        self.assertEqual(dialog.current_options().edit_source, BatchEditSource.KEEP_EACH)
 
-        dialog._auto_preset_action.setChecked(False)
         dialog._auto_export_action.setChecked(False)
         dialog._preview_skip_action.setChecked(False)
+        dialog._edit_source_combo.setCurrentIndex(3)
 
         options = dialog.current_options()
-        self.assertFalse(options.auto_preset)
         self.assertFalse(options.auto_export)
         self.assertFalse(options.preview_skip_mode)
+        self.assertEqual(options.edit_source, BatchEditSource.SMART_MATCH)
 
     def test_run_button_requires_preset_choice_when_enabled(self) -> None:
         dialog = BatchManagerDialog()
@@ -94,14 +94,14 @@ class BatchManagerDialogTests(unittest.TestCase):
 
         self.assertTrue(dialog._run_btn.isEnabled())
 
-        dialog._apply_preset_check.setChecked(True)
+        dialog._edit_source_combo.setCurrentIndex(1)
         self.assertFalse(dialog._run_btn.isEnabled())
 
         dialog._batch_preset_combo.setCurrentIndex(1)
         self.assertTrue(dialog._run_btn.isEnabled())
 
         options = dialog.current_options()
-        self.assertTrue(options.apply_selected_preset)
+        self.assertEqual(options.edit_source, BatchEditSource.CHOSEN_PRESET)
         self.assertEqual(options.selected_preset_name, "Pixel Clean Upscale")
         dialog.clear_selection()
         self.assertFalse(dialog._run_btn.isEnabled())
@@ -262,7 +262,7 @@ class BatchManagerDialogTests(unittest.TestCase):
             )
         )
 
-        self.assertTrue(dialog._select_failed_btn.isEnabled())
+        self.assertTrue(dialog._select_failed_action.isEnabled())
         dialog.select_failed_items()
         self.assertEqual(["asset-2"], dialog.selected_asset_ids())
         self.assertIn("failed: 1", dialog._summary_label.text().lower())

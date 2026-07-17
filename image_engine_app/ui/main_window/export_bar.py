@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
-    QHBoxLayout,
+    QGridLayout,
     QLabel,
     QLineEdit,
     QMenu,
@@ -21,11 +21,12 @@ from PySide6.QtWidgets import (
 
 from image_engine_app.engine.models import ExportProfile
 from image_engine_app.ui.common.icons import icon
+from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY
 from image_engine_app.ui.common.state_bindings import EngineUIState
 
 
 class ExportBar(QFrame):
-    """Fixed bottom action bar shell."""
+    """Responsive bottom action bar for output and navigation."""
 
     browse_export_dir_requested = Signal()
     open_export_dir_requested = Signal()
@@ -34,6 +35,10 @@ class ExportBar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._ui_state: EngineUIState | None = None
+        self._layout: QGridLayout | None = None
+        self._compact_layout: bool | None = None
+        self._profile_label = QLabel("Profile", self)
+        self._destination_label = QLabel("Export to", self)
         self._profile_combo = QComboBox(self)
         self._export_btn = QPushButton("Export", self)
         self._skip_btn = QPushButton("Skip", self)
@@ -67,37 +72,36 @@ class ExportBar(QFrame):
     def _build_ui(self) -> None:
         self.setObjectName("workspaceExportCard")
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(6)
+        layout = QGridLayout(self)
+        layout.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.compact_gap,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.compact_gap,
+        )
+        layout.setHorizontalSpacing(SHELL_GEOMETRY.compact_gap)
+        layout.setVerticalSpacing(4)
+        self._layout = layout
 
-        profile_label = QLabel("Profile", self)
-        profile_label.setObjectName("shellSubtitle")
-        layout.addWidget(profile_label)
+        self._profile_label.setObjectName("shellSubtitle")
         for profile in ExportProfile:
             self._profile_combo.addItem(profile.value.replace("_", " ").title(), userData=profile.value)
         self._profile_combo.currentIndexChanged.connect(self._emit_profile_change)
-        self._profile_combo.setMaximumWidth(104)
-        layout.addWidget(self._profile_combo)
+        self._profile_combo.setFixedWidth(SHELL_GEOMETRY.export_profile_width)
 
         self._export_btn.setObjectName("shellPrimaryAction")
         self._export_btn.setIcon(icon("export"))
         self._export_btn.clicked.connect(self._request_export)
-        layout.addWidget(self._export_btn)
 
         self._skip_btn.setIcon(icon("skip"))
         self._skip_btn.setToolTip("Move to the next asset without exporting.")
         self._skip_btn.clicked.connect(self._request_skip)
-        layout.addWidget(self._skip_btn)
 
-        dest_label = QLabel("Export to", self)
-        dest_label.setObjectName("shellSubtitle")
-        layout.addWidget(dest_label)
+        self._destination_label.setObjectName("shellSubtitle")
         self._export_dir_field.setReadOnly(True)
         self._export_dir_field.setPlaceholderText("Default exports folder")
         self._export_dir_field.setMinimumWidth(0)
         self._export_dir_field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        layout.addWidget(self._export_dir_field, 1)
 
         folder_menu = QMenu(self._folder_menu_btn)
         folder_menu.addAction("Choose Folder", self.browse_export_dir_requested.emit)
@@ -107,20 +111,70 @@ class ExportBar(QFrame):
         self._folder_menu_btn.setToolTip("Choose or open the export folder")
         self._folder_menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._folder_menu_btn.setMenu(folder_menu)
-        layout.addWidget(self._folder_menu_btn)
 
         self._auto_next_toggle.setChecked(True)
         self._auto_next_toggle.setToolTip("After successful export, move to the next asset in workspace order.")
-        layout.addWidget(self._auto_next_toggle)
 
         self._size_label.setObjectName("exportSizeBadge")
         self._size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._size_label.setMinimumHeight(24)
-        self._size_label.setMinimumWidth(104)
+        self._size_label.setFixedWidth(SHELL_GEOMETRY.export_size_width)
         self._size_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        layout.addWidget(self._size_label)
 
+        self._layout_controls(self.width())
         self._set_controls_enabled(False)
+
+    def _layout_controls(self, width: int) -> None:
+        layout = self._layout
+        if layout is None:
+            return
+        compact = int(width) < SHELL_GEOMETRY.export_compact_width
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        widgets = (
+            self._profile_label,
+            self._profile_combo,
+            self._export_btn,
+            self._skip_btn,
+            self._destination_label,
+            self._export_dir_field,
+            self._folder_menu_btn,
+            self._auto_next_toggle,
+            self._size_label,
+        )
+        for widget in widgets:
+            layout.removeWidget(widget)
+        for column in range(9):
+            layout.setColumnStretch(column, 0)
+
+        if compact:
+            layout.addWidget(self._profile_label, 0, 0)
+            layout.addWidget(self._profile_combo, 0, 1)
+            layout.addWidget(self._export_btn, 0, 2)
+            layout.addWidget(self._skip_btn, 0, 3)
+            layout.addWidget(self._size_label, 0, 4)
+            layout.addWidget(self._destination_label, 1, 0)
+            layout.addWidget(self._export_dir_field, 1, 1, 1, 2)
+            layout.addWidget(self._folder_menu_btn, 1, 3)
+            layout.addWidget(self._auto_next_toggle, 1, 4)
+            layout.setColumnStretch(1, 1)
+        else:
+            layout.addWidget(self._profile_label, 0, 0)
+            layout.addWidget(self._profile_combo, 0, 1)
+            layout.addWidget(self._export_btn, 0, 2)
+            layout.addWidget(self._skip_btn, 0, 3)
+            layout.addWidget(self._destination_label, 0, 4)
+            layout.addWidget(self._export_dir_field, 0, 5)
+            layout.addWidget(self._folder_menu_btn, 0, 6)
+            layout.addWidget(self._auto_next_toggle, 0, 7)
+            layout.addWidget(self._size_label, 0, 8)
+            layout.setColumnStretch(5, 1)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._layout_controls(event.size().width())
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         has_asset = bool(enabled)
@@ -146,7 +200,7 @@ class ExportBar(QFrame):
             return
         value = self._profile_combo.currentData()
         if isinstance(value, str):
-            self._ui_state.set_export_profile(value)
+            self._ui_state.request_export_profile(value)
 
     def _on_active_asset_changed(self, asset: object) -> None:
         has_asset = asset is not None

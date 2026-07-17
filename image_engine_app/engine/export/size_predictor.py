@@ -7,13 +7,14 @@ import math
 
 from image_engine_app.engine.common.math_utils import clamp01
 
+from image_engine_app.engine.export.format_resolver import resolve_export_format
 from image_engine_app.engine.export.profiles import get_profile_rule, profile_comparison_formats
 from image_engine_app.engine.models import (
     ExportComparisonEntry,
     ExportFormat,
     ExportPrediction,
-    ExportProfile,
     ExportSettings,
+    GifSettings,
 )
 
 
@@ -24,6 +25,7 @@ class ExportPredictorInput:
     width: int
     height: int
     export_settings: ExportSettings
+    gif_settings: GifSettings | None = None
     has_alpha: bool = False
     is_animated: bool = False
     frame_count: int = 1
@@ -54,7 +56,12 @@ def predict_export_size(
     frame_count = max(1, request.frame_count if request.is_animated else 1)
     raw_bytes = width * height * (4 if request.has_alpha else 3) * frame_count
 
-    primary_format = _resolve_primary_format(request)
+    primary_format = resolve_export_format(
+        request.export_settings,
+        has_alpha=request.has_alpha,
+        is_animated=request.is_animated,
+        frame_count=frame_count,
+    )
     prediction_bytes = _estimate_bytes_for_format(
         file_format=primary_format,
         width=width,
@@ -64,6 +71,7 @@ def predict_export_size(
         has_alpha=request.has_alpha,
         color_count_estimate=request.color_count_estimate,
         settings=request.export_settings,
+        gif_settings=request.gif_settings,
     )
 
     formats_to_compare = compare_formats or list(
@@ -84,6 +92,7 @@ def predict_export_size(
                 has_alpha=request.has_alpha,
                 color_count_estimate=request.color_count_estimate,
                 settings=request.export_settings,
+                gif_settings=request.gif_settings,
             ),
         )
         for fmt in _dedupe_preserve_order(formats_to_compare)
@@ -117,20 +126,6 @@ def predict_export_size(
     )
 
 
-def _resolve_primary_format(request: ExportPredictorInput) -> ExportFormat:
-    selected = request.export_settings.format
-    if selected is not ExportFormat.AUTO:
-        return selected
-
-    if request.is_animated:
-        return ExportFormat.GIF
-    if request.has_alpha:
-        return ExportFormat.PNG if request.export_settings.export_profile is ExportProfile.APP_ASSET else ExportFormat.WEBP
-    if request.export_settings.export_profile is ExportProfile.PRINT:
-        return ExportFormat.TIFF
-    return ExportFormat.WEBP
-
-
 def _estimate_bytes_for_format(
     *,
     file_format: ExportFormat,
@@ -141,18 +136,16 @@ def _estimate_bytes_for_format(
     has_alpha: bool,
     color_count_estimate: int | None,
     settings: ExportSettings,
+    gif_settings: GifSettings | None,
 ) -> int:
     raw_frame_bytes = width * height * (4 if has_alpha else 3)
     raw_total = raw_frame_bytes * frame_count
     complexity = clamp01(complexity)
     quality = max(1, min(100, int(settings.quality)))
     compression_level = max(0, min(9, int(settings.compression_level)))
-    palette_limit = settings.palette_limit
 
     if file_format is ExportFormat.PNG:
         factor = 0.10 + (0.42 * complexity) + (0.06 if has_alpha else 0.0) - (0.02 * (compression_level / 9))
-        if palette_limit:
-            factor *= max(0.2, min(1.0, palette_limit / 256))
         return max(128, int(raw_total * factor))
 
     if file_format is ExportFormat.JPG:
@@ -173,9 +166,10 @@ def _estimate_bytes_for_format(
         return max(96, int(raw_total * factor))
 
     if file_format is ExportFormat.GIF:
-        palette = palette_limit or max(2, min(256, settings.palette_limit or 256))
+        gif = gif_settings or GifSettings()
+        palette = max(2, min(256, int(gif.palette_size or 256)))
         palette_factor = max(0.08, min(1.0, palette / 256))
-        dither_factor = 1.0 + (0.25 * max(0.0, min(1.0, settings.palette_limit / 256 if settings.palette_limit else 0.0)))
+        dither_factor = 1.0 + (0.25 * max(0.0, min(1.0, float(gif.dither_strength))))
         anim_factor = 1.0 + (0.65 * math.log2(max(1, frame_count)))
         base = width * height * max(1, frame_count)
         return max(256, int(base * (0.12 + 0.35 * complexity) * palette_factor * dither_factor * anim_factor))
@@ -194,6 +188,7 @@ def _estimate_bytes_for_format(
                 has_alpha=True,
                 color_count_estimate=color_count_estimate,
                 settings=settings,
+                gif_settings=gif_settings,
             )
         return max(512, total + (16 * len(sizes)) + 6)
 

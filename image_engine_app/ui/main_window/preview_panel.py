@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from image_engine_app.ui.common.state_bindings import EngineUIState
+from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY
 
 
 @dataclass
@@ -60,6 +61,13 @@ class PreviewPanel(QWidget):
         super().__init__(parent)
         self._ui_state: EngineUIState | None = None
         self._panes: dict[str, _PaneWidgets] = {}
+        self._header_layout: QGridLayout | None = None
+        self._header_title = QLabel("Preview Studio", self)
+        self._zoom_hint = QLabel(
+            "Preview-first workspace. Wheel to zoom; use Reset on either pane to refit.",
+            self,
+        )
+        self._header_compact: bool | None = None
         self._pane_grid: QGridLayout | None = None
         self._pane_containers: dict[str, QWidget] = {}
         self._format_badge = QLabel("--", self)
@@ -93,31 +101,31 @@ class PreviewPanel(QWidget):
 
         self._ui_state = ui_state
         ui_state.active_asset_changed.connect(self._on_active_asset_changed)
-        ui_state.sync_changed.connect(self._on_sync_changed)
         ui_state.reset_view_requested.connect(self._on_reset_view_requested)
-        self._on_sync_changed(ui_state.active_asset.edit_state.sync_current_final if ui_state.active_asset else True)
         self._on_active_asset_changed(ui_state.active_asset)
 
     def _build_ui(self) -> None:
         self.setObjectName("previewPanelRoot")
-        self.setMinimumHeight(460)
+        self.setMinimumHeight(SHELL_GEOMETRY.preview_min_height)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(8)
-        header = QHBoxLayout()
-        header.setSpacing(10)
+        outer.setSpacing(SHELL_GEOMETRY.gap)
+        header = QGridLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setHorizontalSpacing(SHELL_GEOMETRY.compact_gap)
+        header.setVerticalSpacing(2)
+        self._header_layout = header
 
-        title = QLabel("Preview Studio", self)
-        title.setObjectName("shellTitle")
-        header.addWidget(title, 0)
+        self._header_title.setObjectName("shellTitle")
 
         self._format_badge.setObjectName("shellBadgeAccent")
-        header.addWidget(self._format_badge, 0)
 
-        zoom_hint = QLabel("Preview-first workspace. Wheel to zoom; use Reset on either pane to refit.", self)
-        zoom_hint.setObjectName("shellHint")
-        zoom_hint.setToolTip("Resize changes output size. Zoom is view-only. Crisp On keeps sprite-sized previews sharp at clean zoom steps.")
-        header.addWidget(zoom_hint, 0)
+        self._zoom_hint.setObjectName("shellHint")
+        self._zoom_hint.setWordWrap(True)
+        self._zoom_hint.setToolTip(
+            "Resize changes output size. Zoom is view-only. Crisp On keeps "
+            "sprite-sized previews sharp at clean zoom steps."
+        )
 
         self._zoom_snap_button.setObjectName("shellWarmToggle")
         self._zoom_snap_button.setCheckable(True)
@@ -125,19 +133,23 @@ class PreviewPanel(QWidget):
         self._zoom_snap_button.setText("Crisp On")
         self._zoom_snap_button.setToolTip("On = crisp nearest-neighbor (best for sprites). Off = smooth zoom rendering.")
         self._zoom_snap_button.toggled.connect(self._on_zoom_snap_toggled)
-        header.addWidget(self._zoom_snap_button, 0)
 
-        header.addStretch(1)
+        self._layout_header(self.width())
         outer.addLayout(header)
 
         panel_frame = QFrame(self)
         panel_frame.setFrameShape(QFrame.Shape.StyledPanel)
         panel_frame.setObjectName("previewPanelFrame")
-        panel_frame.setMinimumHeight(400)
+        panel_frame.setMinimumHeight(SHELL_GEOMETRY.preview_frame_min_height)
         grid = QGridLayout(panel_frame)
-        grid.setContentsMargins(8, 8, 8, 8)
+        grid.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+            SHELL_GEOMETRY.card_margin,
+        )
         grid.setHorizontalSpacing(0)
-        grid.setVerticalSpacing(8)
+        grid.setVerticalSpacing(SHELL_GEOMETRY.gap)
 
         self._pane_grid = grid
 
@@ -162,7 +174,10 @@ class PreviewPanel(QWidget):
         canvas = QLabel(self._empty_canvas_text(), self)
         canvas.setObjectName("previewCanvas")
         canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        canvas.setMinimumSize(240, 240)
+        canvas.setMinimumSize(
+            SHELL_GEOMETRY.preview_canvas_min,
+            SHELL_GEOMETRY.preview_canvas_min,
+        )
         canvas.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         canvas.setFrameShape(QFrame.Shape.Box)
         canvas.setScaledContents(False)
@@ -172,7 +187,7 @@ class PreviewPanel(QWidget):
         scroll.setWidgetResizable(False)
         scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setMinimumHeight(380)
+        scroll.setMinimumHeight(SHELL_GEOMETRY.preview_scroll_min_height)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Wheel zoom + drag pan events are captured from both viewport and label.
@@ -198,7 +213,12 @@ class PreviewPanel(QWidget):
         container = QFrame(self)
         container.setObjectName("previewPaneContainer")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setContentsMargins(
+            SHELL_GEOMETRY.card_margin,
+            0,
+            SHELL_GEOMETRY.card_margin,
+            0,
+        )
         layout.setSpacing(4)
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
@@ -259,18 +279,47 @@ class PreviewPanel(QWidget):
                 f"QFrame#previewPaneContainer {{ border-right: {border}; }}"
             )
 
-    def _on_sync_changed(self, enabled: bool) -> None:
-        _ = enabled
-        # Sync still matters to edit behavior, but the preview layout is now fixed to Current + Final.
-        self._layout_panes()
-
     def _on_zoom_snap_toggled(self, enabled: bool) -> None:
         self._zoom_snap_enabled = bool(enabled)
         self._zoom_snap_button.setText("Crisp On" if self._zoom_snap_enabled else "Crisp Off")
         self._render_all_panes(rescale_only=False)
 
+    def _layout_header(self, width: int) -> None:
+        layout = self._header_layout
+        if layout is None:
+            return
+        compact = int(width) < SHELL_GEOMETRY.preview_header_compact_width
+        if compact == self._header_compact:
+            return
+        self._header_compact = compact
+
+        for widget in (
+            self._header_title,
+            self._format_badge,
+            self._zoom_hint,
+            self._zoom_snap_button,
+        ):
+            layout.removeWidget(widget)
+        for column in range(4):
+            layout.setColumnStretch(column, 0)
+
+        layout.addWidget(self._header_title, 0, 0)
+        layout.addWidget(self._format_badge, 0, 1)
+        layout.addWidget(
+            self._zoom_snap_button,
+            0,
+            3,
+            alignment=Qt.AlignmentFlag.AlignRight,
+        )
+        layout.setColumnStretch(2, 1)
+        if compact:
+            layout.addWidget(self._zoom_hint, 1, 0, 1, 4)
+        else:
+            layout.addWidget(self._zoom_hint, 0, 2)
+
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().resizeEvent(event)
+        self._layout_header(event.size().width())
         self._render_all_panes(rescale_only=True)
 
     def eventFilter(self, watched: object, event: object) -> bool:
@@ -685,15 +734,10 @@ class PreviewPanel(QWidget):
         source_path = self._resolve_preview_path(asset)
 
         if view_key == "current":
-            candidates = (
-                getattr(asset, "derived_current_path", None),
-                source_path,
-                getattr(asset, "derived_final_path", None),
-            )
+            candidates = (source_path,)
         else:
             candidates = (
                 getattr(asset, "derived_final_path", None),
-                getattr(asset, "derived_current_path", None),
                 source_path,
             )
 

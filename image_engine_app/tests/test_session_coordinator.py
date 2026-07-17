@@ -1,4 +1,4 @@
-"""Session coordinator tests for clear/save workflows."""
+"""Session coordinator tests for safe workspace replacement workflows."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def _asset(asset_id: str = "asset-a") -> AssetRecord:
 
 @unittest.skipIf(QMessageBox is None, "PySide6 not installed")
 class SessionCoordinatorTests(unittest.TestCase):
-    def test_clear_session_discard_clears_workspace(self) -> None:
+    def test_new_workspace_discard_replaces_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             store = SessionStore(paths)
@@ -87,15 +87,16 @@ class SessionCoordinatorTests(unittest.TestCase):
                 "image_engine_app.ui.main_window.session_coordinator.QMessageBox.question",
                 return_value=QMessageBox.StandardButton.Discard,
             ):
-                coordinator.clear_session()
+                created = coordinator.new_workspace()
 
+            self.assertTrue(created)
             self.assertEqual(1, len(window.loaded_states))
             loaded_session, loaded_assets = window.loaded_states[0]
             self.assertTrue(loaded_session.session_id.startswith("session-"))
             self.assertEqual([], loaded_assets)
-            self.assertEqual("Session cleared", window.status_messages[-1])
+            self.assertEqual("New workspace created", window.status_messages[-1])
 
-    def test_clear_session_save_then_cancel_save_dialog_does_not_clear(self) -> None:
+    def test_new_workspace_save_then_cancel_save_dialog_keeps_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             store = SessionStore(paths)
@@ -107,12 +108,13 @@ class SessionCoordinatorTests(unittest.TestCase):
                 return_value=QMessageBox.StandardButton.Save,
             ):
                 with patch("image_engine_app.ui.main_window.session_coordinator.QFileDialog.getSaveFileName", return_value=("", "")):
-                    coordinator.clear_session()
+                    created = coordinator.new_workspace()
 
+            self.assertFalse(created)
             self.assertEqual([], window.loaded_states)
-            self.assertEqual("Clear session canceled", window.status_messages[-1])
+            self.assertEqual("New workspace canceled", window.status_messages[-1])
 
-    def test_clear_session_without_content_skips_prompt(self) -> None:
+    def test_new_workspace_without_content_skips_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             paths = ensure_app_paths(base_dir=temp_dir)
             store = SessionStore(paths)
@@ -130,11 +132,33 @@ class SessionCoordinatorTests(unittest.TestCase):
             coordinator = SessionCoordinator(window)
 
             with patch("image_engine_app.ui.main_window.session_coordinator.QMessageBox.question") as mocked_prompt:
-                coordinator.clear_session()
+                created = coordinator.new_workspace()
 
             mocked_prompt.assert_not_called()
+            self.assertTrue(created)
             self.assertEqual(1, len(window.loaded_states))
-            self.assertEqual("Session cleared", window.status_messages[-1])
+            self.assertEqual("New workspace created", window.status_messages[-1])
+
+    def test_open_workspace_cancel_keeps_current_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = ensure_app_paths(base_dir=temp_dir)
+            store = SessionStore(paths)
+            window = _FakeWindow(session_store=store, session=_session(), assets=[_asset()])
+            coordinator = SessionCoordinator(window)
+            target = Path(temp_dir) / "another-workspace.json"
+
+            with patch(
+                "image_engine_app.ui.main_window.session_coordinator.QFileDialog.getOpenFileName",
+                return_value=(str(target), "JSON Files (*.json)"),
+            ):
+                with patch(
+                    "image_engine_app.ui.main_window.session_coordinator.QMessageBox.question",
+                    return_value=QMessageBox.StandardButton.Cancel,
+                ):
+                    coordinator.open_workspace_file()
+
+            self.assertEqual([], window.loaded_states)
+            self.assertEqual("Open workspace canceled", window.status_messages[-1])
 
 
 if __name__ == "__main__":

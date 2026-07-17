@@ -7,7 +7,6 @@ import unittest
 from image_engine_app.app.services import (
     PresetLibrary,
     build_batch_auto_preset_rules,
-    build_batch_per_source_preset_rules,
 )
 from image_engine_app.engine.models import EditMode, PresetModel
 
@@ -30,5 +29,6 @@ class BatchPresetRulesServiceTests(unittest.TestCase):
         self.assertEqual(rules["photo"][0].name, "Photo Recover")
         self.assertEqual(rules["animation"][0].name, "GIF Safe Cleanup")
 
-    def test_per_source_rules_can_be_disabled(self) -> None:
-        self.assertEqual(build_batch_per_source_preset_rules(enabled=False), {})
+    def test_auto_rules_can_be_disabled(self) -> None:
+        library = PresetLibrary(system_presets={})
+        self.assertEqual(build_batch_auto_preset_rules(library, enabled=False), {})

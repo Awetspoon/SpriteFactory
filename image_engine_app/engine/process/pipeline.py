@@ -76,7 +76,7 @@ def merge_processing_plans(*plans: ProcessingPlan) -> ProcessingPlan:
     """
     Merge plans by step key with last-plan-wins semantics, then reapply canonical ordering.
 
-    This supports "light preview plan + heavy queued changes + export override" composition.
+    This supports "Final-preview plan + heavy queued changes + export override" composition.
     """
 
     merged_by_key: dict[str, ProcessingStep] = {}
@@ -97,4 +97,3 @@ def _sort_steps(steps: list[ProcessingStep]) -> list[ProcessingStep]:
             step.key,
         ),
     )
-

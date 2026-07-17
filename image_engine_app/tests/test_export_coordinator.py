@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import unittest
 
+from image_engine_app.engine.export.exporters import ExportResult
+from image_engine_app.engine.models import ExportFormat
 from image_engine_app.engine.models import AssetRecord
 from image_engine_app.ui.main_window.export_coordinator import ExportCoordinator
 
@@ -30,12 +33,16 @@ class _FakeExportBar:
     def auto_next_after_export(self) -> bool:
         return False
 
+    def export_directory(self) -> str | None:
+        return None
+
 
 class _FakeWindow:
     def __init__(self, assets: list[AssetRecord], active_asset: AssetRecord | None) -> None:
         self._assets = list(assets)
         self.ui_state = _FakeUIState(active_asset)
         self.export_bar = _FakeExportBar()
+        self.controller = None
         self.synced_asset_ids: list[str | None] = []
         self.status_messages: list[str] = []
 
@@ -45,8 +52,15 @@ class _FakeWindow:
     def _sync_session_active_asset(self, asset: AssetRecord | None) -> None:
         self.synced_asset_ids.append(asset.id if asset is not None else None)
 
+    def _activate_asset(self, asset: AssetRecord | None) -> None:
+        self.ui_state.set_active_asset(asset)
+        self._sync_session_active_asset(asset)
+
     def _status(self, text: str) -> None:
         self.status_messages.append(text)
+
+    def _refresh_export_prediction(self) -> None:
+        return
 
 
 class ExportCoordinatorTests(unittest.TestCase):
@@ -83,6 +97,30 @@ class ExportCoordinatorTests(unittest.TestCase):
         self.assertEqual("asset-b", window.ui_state.active_asset.id)
         self.assertEqual([], window.synced_asset_ids)
         self.assertEqual(["Skip unavailable: already at the last asset"], window.status_messages)
+
+    def test_failed_export_does_not_move_to_next_asset_or_report_success(self) -> None:
+        assets = [_asset("asset-a"), _asset("asset-b")]
+        window = _FakeWindow(assets=assets, active_asset=assets[0])
+
+        class FailedController:
+            def export_active_asset(self, _asset, *, export_dir=None):  # noqa: ANN001
+                _ = export_dir
+                return ExportResult(
+                    success=False,
+                    output_path=Path("C:/exports/asset-a.png"),
+                    format=ExportFormat.PNG,
+                    bytes_written=0,
+                    message="Export failed: permission denied",
+                )
+
+        window.controller = FailedController()
+
+        ExportCoordinator(window).on_export_requested()
+
+        self.assertEqual("asset-a", window.ui_state.active_asset.id)
+        self.assertEqual([], window.synced_asset_ids)
+        self.assertIn("permission denied", window.status_messages[-1])
+        self.assertNotIn("Exported (", window.status_messages[-1])
 
 
 if __name__ == "__main__":

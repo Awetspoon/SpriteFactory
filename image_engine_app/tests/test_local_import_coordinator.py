@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 import unittest
 from unittest.mock import patch
 
@@ -13,9 +12,11 @@ try:
 except Exception:  # pragma: no cover - optional dependency in some environments
     QFileDialog = None  # type: ignore[assignment]
 
-from image_engine_app.app.ui_controller import LocalImportSummary  # noqa: E402
-from image_engine_app.engine.ingest.local_ingest import LocalIngestResult  # noqa: E402
-from image_engine_app.engine.ingest.zip_extract import ZipExtractError  # noqa: E402
+from image_engine_app.engine.ingest.import_result import (  # noqa: E402
+    ImportIssueKind,
+    ImportResult,
+    ImportedAsset,
+)
 from image_engine_app.engine.models import AssetRecord, SourceType  # noqa: E402
 from image_engine_app.ui.main_window.local_import_coordinator import LocalImportCoordinator  # noqa: E402
 
@@ -29,12 +30,12 @@ class _FakeExportBar:
 
 
 class _FakeController:
-    def __init__(self, summary: LocalImportSummary) -> None:
+    def __init__(self, summary: ImportResult) -> None:
         self.summary = summary
         self.calls: list[tuple[list[str], dict[str, object]]] = []
         self.app_paths = None
 
-    def import_local_sources(self, sources: list[str], **kwargs: object) -> LocalImportSummary:
+    def import_local_sources(self, sources: list[str], **kwargs: object) -> ImportResult:
         self.calls.append((list(sources), dict(kwargs)))
         return self.summary
 
@@ -52,8 +53,8 @@ class _FakeWindow:
         return [".png", ".jpg", ".gif", ".webp", ".bmp", ".ico", ".tif", ".tiff"]
 
     @staticmethod
-    def _local_file_dialog_filter() -> str:
-        return "Supported Images (*.png *.jpg);;All Files (*)"
+    def _local_import_dialog_filter() -> str:
+        return "Supported Images and ZIPs (*.png *.jpg *.zip);;All Files (*)"
 
     def _register_assets(self, assets: list[AssetRecord], *, set_active: bool) -> None:
         self.registered_assets.append((list(assets), bool(set_active)))
@@ -75,15 +76,21 @@ def _asset(asset_id: str = "asset-1") -> AssetRecord:
     )
 
 
+def _result(*assets: AssetRecord) -> ImportResult:
+    return ImportResult(
+        entries=[
+            ImportedAsset(asset=asset, source=asset.source_uri, local_path=Path(asset.source_uri))
+            for asset in assets
+        ]
+    )
+
+
 @unittest.skipIf(QFileDialog is None, "PySide6 not installed")
 class LocalImportCoordinatorTests(unittest.TestCase):
     def test_import_files_registers_assets_and_reports_summary(self) -> None:
-        summary = LocalImportSummary(
-            assets=[_asset("asset-a")],
-            duplicates=[Path("C:/images/dupe.png")],
-            unsupported=[Path("C:/images/not-image.txt")],
-            raw_result=LocalIngestResult(),
-        )
+        summary = _result(_asset("asset-a"))
+        summary.add_issue(ImportIssueKind.DUPLICATE, "C:/images/dupe.png")
+        summary.add_issue(ImportIssueKind.UNSUPPORTED, "C:/images/not-image.txt")
         controller = _FakeController(summary)
         window = _FakeWindow(controller=controller)
         coordinator = LocalImportCoordinator(window)
@@ -102,35 +109,47 @@ class LocalImportCoordinatorTests(unittest.TestCase):
         self.assertEqual(True, kwargs.get("flatten"))
         self.assertEqual(True, kwargs.get("dedupe_by_hash"))
         self.assertEqual(1, len(window.registered_assets))
-        self.assertIn("Imported files: 1 asset(s)", window.status_messages[-1])
+        self.assertIn("Added files: 1 asset(s)", window.status_messages[-1])
         self.assertIn("1 duplicate(s) skipped", window.status_messages[-1])
         self.assertIn("1 unsupported file(s) skipped", window.status_messages[-1])
 
-    def test_import_zip_archive_reports_extract_error(self) -> None:
-        summary = LocalImportSummary(
-            assets=[],
-            duplicates=[],
-            unsupported=[],
-            raw_result=LocalIngestResult(),
-        )
+    def test_import_files_passes_zip_and_regular_images_to_one_controller_call(self) -> None:
+        summary = _result(_asset("asset-a"))
         controller = _FakeController(summary)
         window = _FakeWindow(controller=controller)
         coordinator = LocalImportCoordinator(window)
 
         with patch(
-            "image_engine_app.ui.main_window.local_import_coordinator.QFileDialog.getOpenFileName",
-            return_value=("C:/images/broken.zip", ""),
+            "image_engine_app.ui.main_window.local_import_coordinator.QFileDialog.getOpenFileNames",
+            return_value=(["C:/images/direct.png", "C:/images/bundle.zip"], ""),
         ):
-            with patch(
-                "image_engine_app.ui.main_window.local_import_coordinator.extract_images_only",
-                side_effect=ZipExtractError("Bad ZIP file: C:/images/broken.zip"),
-            ):
-                coordinator.import_zip_archive()
+            coordinator.import_files()
 
-        self.assertEqual([], controller.calls)
+        self.assertEqual(1, len(controller.calls))
+        imported_sources, _kwargs = controller.calls[0]
+        self.assertEqual(
+            ["C:/images/direct.png", "C:/images/bundle.zip"],
+            imported_sources,
+        )
+
+    def test_import_files_reports_source_failure_from_shared_result(self) -> None:
+        summary = ImportResult()
+        summary.add_issue(ImportIssueKind.FAILED, "broken.zip", "Bad ZIP file")
+        controller = _FakeController(summary)
+        window = _FakeWindow(controller=controller)
+        coordinator = LocalImportCoordinator(window)
+
+        with patch(
+            "image_engine_app.ui.main_window.local_import_coordinator.QFileDialog.getOpenFileNames",
+            return_value=(["C:/images/broken.zip"], ""),
+        ):
+            coordinator.import_files()
+
+        self.assertEqual(1, len(controller.calls))
         self.assertEqual([], window.registered_assets)
-        self.assertEqual("ZIP Import Failed", window.error_messages[-1][0])
-        self.assertIn("ZIP import failed", window.status_messages[-1])
+        self.assertEqual("Some Sources Could Not Be Added", window.error_messages[-1][0])
+        self.assertIn("broken.zip", window.error_messages[-1][1])
+        self.assertIn("1 source(s) failed", window.status_messages[-1])
 
     def test_import_without_controller_shows_status(self) -> None:
         window = _FakeWindow(controller=None)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "image-engine-app"
-version = "1.2.2"
+version = "1.2.3"
 description = "Sprite Factory desktop image engine"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,5 +23,13 @@ spritefactory = "image_engine_app.launcher:main"
 spritefactory-audit = "image_engine_app.app.audit:main"
 
 [tool.setuptools.packages.find]
-include = ["image_engine_app*", "image_engine_v3*"]
+include = ["image_engine_app*"]
 exclude = ["image_engine_app.tests*"]
+
+[tool.setuptools.package-data]
+image_engine_app = [
+  "assets/icons/*.ico",
+  "assets/icons/*.png",
+  "docs/*.json",
+  "ui/common/*.svg",
+]

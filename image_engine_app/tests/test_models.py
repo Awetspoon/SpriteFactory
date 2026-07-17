@@ -13,7 +13,6 @@ from image_engine_app.engine.models import (  # noqa: E402
     AISettings,
     AlphaSettings,
     AnalysisSummary,
-    ApplyTarget,
     AssetFormat,
     AssetRecord,
     Capabilities,
@@ -48,6 +47,7 @@ from image_engine_app.engine.models import (  # noqa: E402
     ScaleMethod,
     SessionState,
     SettingsState,
+    SourceImageMetadata,
     SourceType,
     TabState,
 )
@@ -58,6 +58,21 @@ def _dt(hour: int, minute: int = 0) -> datetime:
 
 
 class ModelSerializationTests(unittest.TestCase):
+    def test_legacy_two_view_edit_fields_are_ignored_on_load(self) -> None:
+        restored = EditState.from_dict(
+            {
+                "mode": "advanced",
+                "sync_current_final": False,
+                "apply_target": "current",
+                "auto_apply_light": False,
+                "settings": SettingsState().to_dict(),
+            }
+        )
+
+        self.assertEqual(EditMode.ADVANCED, restored.mode)
+        self.assertFalse(hasattr(restored, "sync_current_final"))
+        self.assertFalse(hasattr(restored, "apply_target"))
+
     def test_asset_record_round_trip(self) -> None:
         asset = AssetRecord(
             id="asset-001",
@@ -72,6 +87,12 @@ class ModelSerializationTests(unittest.TestCase):
                 is_animated=False,
                 is_sheet=True,
                 is_ico_bundle=False,
+            ),
+            source_metadata=SourceImageMetadata(
+                color_mode="RGBA",
+                dpi=144,
+                frame_count=1,
+                loop_count=None,
             ),
             dimensions_original=(64, 64),
             dimensions_current=(128, 128),
@@ -99,9 +120,6 @@ class ModelSerializationTests(unittest.TestCase):
             ),
             edit_state=EditState(
                 mode=EditMode.ADVANCED,
-                sync_current_final=False,
-                apply_target=ApplyTarget.FINAL,
-                auto_apply_light=False,
                 queued_heavy_jobs=[
                     HeavyJobSpec(
                         id="job-001",
@@ -172,7 +190,6 @@ class ModelSerializationTests(unittest.TestCase):
                         quality=100,
                         compression_level=3,
                         chroma_subsampling=ChromaSubsampling.AUTO,
-                        palette_limit=None,
                         ico_sizes=[16, 32, 64, 128, 256],
                         strip_metadata=True,
                     ),
@@ -194,6 +211,10 @@ class ModelSerializationTests(unittest.TestCase):
                 pointer=0,
             ),
         )
+        asset.detected_settings = SettingsState(
+            pixel=PixelSettings(scale_method=ScaleMethod.NEAREST, pixel_snap=True),
+            export=ExportSettings(export_profile=ExportProfile.APP_ASSET, format=ExportFormat.PNG),
+        )
 
         payload = asset.to_dict()
         json.dumps(payload)  # JSON-safe check
@@ -203,6 +224,9 @@ class ModelSerializationTests(unittest.TestCase):
         self.assertIsInstance(restored.dimensions_original, tuple)
         self.assertIsInstance(restored.created_at, datetime)
         self.assertIsInstance(restored.edit_state.queued_heavy_jobs[0].tool, HeavyTool)
+        self.assertEqual("RGBA", restored.source_metadata.color_mode)
+        self.assertEqual(144, restored.source_metadata.dpi)
+        self.assertEqual(restored.detected_settings.pixel.scale_method, ScaleMethod.NEAREST)
 
     def test_session_state_round_trip(self) -> None:
         session = SessionState(
@@ -307,10 +331,10 @@ class ModelSerializationTests(unittest.TestCase):
             queue_status="processing",
             queue_progress=0.4,
             overall_progress=0.25,
-            stage="light_preview",
+            stage="final_preview",
             processed_count=2,
             failed_count=0,
-            message="Applying light pipeline",
+            message="Rendering Final preview",
             timestamp=_dt(21, 6),
         )
         tab_state = TabState(

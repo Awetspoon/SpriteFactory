@@ -121,16 +121,39 @@ class UserSettingsStoreTests(unittest.TestCase):
 
             save_web_sources_settings(
                 paths,
-                last_selected={"website_id": "example_com", "area_id": "root"},
+                last_selected={"website_id": "example_com", "page_id": "root"},
                 options={"show_likely": True, "auto_sort": True, "allow_zip": False},
             )
             restored = load_web_sources_settings(paths)
 
             self.assertEqual(restored["last_selected"]["website_id"], "example_com")
-            self.assertEqual(restored["last_selected"]["area_id"], "root")
+            self.assertEqual(restored["last_selected"]["page_id"], "root")
             self.assertTrue(restored["options"]["show_likely"])
             self.assertTrue(restored["options"]["auto_sort"])
             self.assertFalse(restored["options"]["allow_zip"])
+
+    def test_web_sources_settings_migrates_legacy_area_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = ensure_app_paths(base_dir=temp_dir)
+            save_user_settings(
+                paths,
+                {
+                    "web_sources": {
+                        "last_selected": {
+                            "website_id": "example_com",
+                            "area_id": "legacy_page",
+                        }
+                    }
+                },
+            )
+
+            restored = load_web_sources_settings(paths)
+            self.assertEqual("legacy_page", restored["last_selected"]["page_id"])
+
+            save_web_sources_settings(paths, last_selected=restored["last_selected"])
+            persisted = load_user_settings(paths)["web_sources"]["last_selected"]
+            self.assertEqual("legacy_page", persisted["page_id"])
+            self.assertNotIn("area_id", persisted)
 
     def test_web_sources_settings_preserves_saved_registry_without_injecting_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -210,6 +233,20 @@ class SessionStoreTests(unittest.TestCase):
             self.assertEqual(loaded.session, session)
             self.assertEqual([asset.id for asset in loaded.assets], ["asset-a"])
             self.assertEqual(store.list_session_files(include_autosaves=True), [])
+
+    def test_load_workspace_tolerates_legacy_session_only_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = ensure_app_paths(base_dir=temp_dir)
+            store = SessionStore(paths)
+            session = _session("legacy-session", "asset-a")
+            target = paths.sessions / "legacy_session_only.json"
+            store.save_session_to_path(target, session, autosave=False)
+
+            loaded = store.load_workspace(target)
+
+            self.assertEqual(session, loaded.session)
+            self.assertEqual([], loaded.assets)
+            self.assertFalse(loaded.autosave)
 
     def test_autosave_crash_recovery_keeps_latest_workspace_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

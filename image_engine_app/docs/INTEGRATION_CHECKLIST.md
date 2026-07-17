@@ -1,70 +1,32 @@
-﻿# Integration Checklist â€” Web Sources Tab
+# Import and Web Sources Integration
 
-This checklist is written to avoid broken patches.
+Sprite Factory uses one import contract for local files, folders, ZIPs, direct URLs, downloaded web files, and cached web files.
 
-## 1) Add new files (no edits yet)
-Add these files to your repo:
-- `image_engine_app/ui/main_window/web_sources_panel.py`
-- `image_engine_app/engine/ingest/web_sources_rules.py`
-- `image_engine_app/engine/ingest/zip_extract.py`
-- `image_engine_app/app/web_sources_models.py`
+## Ownership
 
-## 2) Wire the tab into the main UI
-Edit:
-- `image_engine_app/ui/main_window/asset_tabs.py`
+- `engine/ingest/import_result.py` describes imported assets, reuse, duplicates, unsupported sources, failures, and cancellation.
+- `engine/ingest/local_ingest.py` scans local sources, safely expands ZIPs, validates signatures, and deduplicates content.
+- `engine/ingest/url_ingest.py` validates and downloads one URL into the cache.
+- `app/services/asset_import.py` detects metadata and prepares new assets for the workspace.
+- `app/services/web_sources_workflow.py` plans scans and owns linked pages plus accumulated Found Files.
+- `app/services/web_sources_scanner.py` discovers pages and scans page lists; `web_sources_downloader.py` retrieves and imports selected files through `AssetImportService`.
+- `app/services/workspace_state.py` is the only owner of workspace addition, restored-state replacement, ordering, pinning, and 100-item sections.
 
-Add a new tab labeled **Web Sources** and place `WebSourcesPanel(...)` in it.
+## Required flow
 
-**Rule:** Do not move or rename existing tabs; just add one.
+1. Resolve selected sources into an `ImportResult`.
+2. Prepare new entries through `AssetImportService` exactly once.
+3. Register `result.assets` through `WorkspaceCoordinator`.
+4. Show counts from the result without rebuilding or reclassifying its assets.
+5. Load saved workspace assets directly so persisted edits are preserved.
 
-## 3) Add controller entry points
-Edit:
-- `image_engine_app/app/ui_controller.py`
+## Behavior checks
 
-Add methods:
-- `scan_web_source_area(area_url: str, *, allowed_exts: set[str] | None = None) -> ScanResults`
-- `download_web_items(items: list[WebItem], target: ImportTarget, *, smart: SmartOptions) -> DownloadReport`
-
-These methods should call your existing:
-- `engine/ingest/webpage_scan.py`
-- `engine/ingest/url_ingest.py`
-- app/controller cache path handling (existing cache flow)
-
-## 4) Add settings persistence
-Edit:
-- `image_engine_app/app/settings_store.py`
-
-Store:
-- `web_sources_registry` (list of websites + areas)
-- `web_sources_last_selected` (website_id, area_id)
-- `web_sources_options` (toggles like Show Likely, Auto-sort, Skip duplicates)
-
-A default registry example is in `docs/DEFAULT_WEB_SOURCES.json`.
-
-## 5) Import destination mapping
-In controller, map ImportTarget â†’ your actual library folders.
-
-Targets:
-- Normal
-- Shiny
-- Animated
-- Items
-
-If your project uses different folder names, only change the mapping.
-
-## 6) ZIP support
-When a selected item is a `.zip`:
-- download zip to cache
-- use `engine/ingest/zip_extract.py` to extract only allowed images
-- import extracted results like normal
-
-## 7) Library refresh
-After downloads finish, trigger whatever your app uses to refresh the library grid / index.
-
-## 8) Smoke tests
-- Scan a page with PNGs â†’ results list populates
-- Download 1 PNG â†’ appears in library
-- Download same PNG again â†’ skipped (when Skip duplicates ON)
-- Download a ZIP â†’ wizard/flow extracts and imports images
-
-
+- A mixed file and ZIP selection enters the workspace through one controller call.
+- Folder imports remain deterministic and preserve relative queue paths.
+- Duplicate content is skipped even when filenames differ.
+- Cached web files are marked reused but still return a workspace asset.
+- Web ZIP members receive the same metadata and detected controls as local files.
+- Invalid archive members cannot escape the extraction directory.
+- Adding more than 100 assets selects and displays the correct section.
+- Restoring a workspace removes stale tab and pin IDs without resetting saved controls.

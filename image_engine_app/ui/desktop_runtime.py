@@ -13,7 +13,7 @@ from image_engine_app.ui.common.shell_theme import build_app_stylesheet
 from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY
 
 
-APP_ICON_NAMES = ("spritefactory_pro.ico", "spritefactory.ico", "spritefactory_pro.png", "spritefactory.png")
+APP_ICON_NAMES = ("spritefactory_pro.ico", "spritefactory_pro.png")
 
 
 def resolve_runtime_icon_candidates() -> list[Path]:

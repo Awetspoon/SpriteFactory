@@ -84,12 +84,6 @@ exe_kwargs = dict(
 )
 
 icon_file = os.path.join(icon_source_dir, "spritefactory_pro.ico")
-if not os.path.exists(icon_file):
-    icon_file = os.path.join(icon_source_dir, "spritefactory.ico")
-if not os.path.exists(icon_file):
-    icon_file = os.path.join(project_root, "spritefactory_pro.ico")
-if not os.path.exists(icon_file):
-    icon_file = os.path.join(project_root, "spritefactory.ico")
 if os.path.exists(icon_file):
     exe_kwargs["icon"] = icon_file
 

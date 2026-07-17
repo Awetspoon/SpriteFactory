@@ -59,6 +59,8 @@ class LauncherTests(unittest.TestCase):
 
         self.assertIn("spritefactory_pro.ico", names)
         self.assertIn("spritefactory_pro.png", names)
+        self.assertNotIn("spritefactory.ico", names)
+        self.assertNotIn("spritefactory.png", names)
         self.assertLess(names.index("spritefactory_pro.ico"), names.index("spritefactory_pro.png"))
 
 

@@ -1,5 +1,3 @@
-# Sprite Factory 1.2.3 Release Notes
-
 Sprite Factory 1.2.3 completes the clean editor rebuild and makes repeat web scanning much easier with the new Saved Library.
 
 ![Sprite Factory 1.2.3](sprite-factory-1.2.3-ui.png)

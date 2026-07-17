@@ -1,5 +1,3 @@
-# Sprite Factory 1.2.0 Release Notes
-
 ## Highlights
 
 - Rebuilt the shell into a cleaner preview-first studio layout.

@@ -1,5 +1,3 @@
-# Sprite Factory 1.2.1 Release Notes
-
 Sprite Factory 1.2.1 is a polish and reliability update focused on the redesigned editor shell, Web Sources, workspace handling, batch processing, presets, GIF behavior, and release readiness.
 
 ## Highlights

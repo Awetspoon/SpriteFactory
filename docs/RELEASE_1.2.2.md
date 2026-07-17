@@ -1,5 +1,3 @@
-# Sprite Factory 1.2.2 Release Notes
-
 Sprite Factory 1.2.2 completes the staged rebuild of the editor while preserving the real sprite, image, GIF, preset, web scanning, batch, and export workflows.
 
 ## Editing And Preview

@@ -4,7 +4,7 @@ This folder holds support docs and visual assets used by the repository.
 
 ## Start Here
 
-- [Release Notes (1.2.4)](RELEASE_1.2.4.md)
+- [Update Notes (1.2.4)](RELEASE_1.2.4.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Release checklist](RELEASE_CHECKLIST.md)
 - [Audit checklist](AUDIT_CHECKLIST.md)

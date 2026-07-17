@@ -17,7 +17,7 @@ Run these checks from the repository root.
 
 ## 3. Version And Visuals
 
-- [ ] Confirm `pyproject.toml`, `pyinstaller_version_info.py`, the window title, release notes, and screenshot use the same version
+- [ ] Confirm `pyproject.toml`, `pyinstaller_version_info.py`, the window title, update notes, and screenshot use the same version
 - [ ] Confirm `image_engine_app/assets/icons/` contains the current ICO and PNG app icon assets
 - [ ] Confirm `docs/sprite-factory-1.2.4-ui.png` shows the current real application
 
@@ -44,5 +44,5 @@ Run these checks from the repository root.
 ## 7. Publish
 
 - [ ] Upload `.local\release\SpriteFactory-v1.2.4-win64.exe` to GitHub Releases
-- [ ] Use `docs/RELEASE_1.2.4.md` for release notes
+- [ ] Use `docs/RELEASE_1.2.4.md` as the Update Notes body without adding another title heading
 - [ ] Keep `README.md` and `docs/TROUBLESHOOTING.md` current

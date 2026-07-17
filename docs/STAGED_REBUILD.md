@@ -148,7 +148,7 @@ Status: completed locally and verified.
 Status: completed locally and verified.
 
 - The in-app Helper and repository documentation now describe the rebuilt File, Workspace, Final preview, settings, presets, Web Sources, Batch, reset, and export workflows.
-- Release metadata is synchronized across `pyproject.toml`, the window title, PyInstaller version resources, release notes, and the current real-application screenshot.
+- Release metadata is synchronized across `pyproject.toml`, the window title, PyInstaller version resources, update notes, and the current real-application screenshot.
 - PyInstaller collects only the runtime icons, default Web Sources JSON, and shared UI SVG; repository Markdown and local test caches are excluded from the executable.
 - `build_exe_onefile.ps1` uses guarded workspace cleanup, runs the full suite, embeds the current icon/version, launches the frozen application in smoke-test mode, and verifies the real UI shell before copying the artifact.
 - The resulting `.local/release/SpriteFactory-v1.2.2-win64.exe` reports version 1.2.2 and passed the packaged icon and startup checks.

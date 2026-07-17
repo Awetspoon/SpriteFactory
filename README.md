@@ -6,7 +6,7 @@
 
 Sprite Factory is a focused Windows editor for sprites, animated GIFs, icons, photos, and other image assets. Import one file or a whole collection, compare the source with the edited result, make precise adjustments, and export individual files or a complete batch.
 
-[**Download Sprite Factory for Windows**](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Release Notes](docs/RELEASE_1.2.4.md) | [Help and troubleshooting](docs/TROUBLESHOOTING.md)
+[**Download Sprite Factory for Windows**](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Update Notes](docs/RELEASE_1.2.4.md) | [Help and troubleshooting](docs/TROUBLESHOOTING.md)
 
 ![Sprite Factory editor](docs/sprite-factory-1.2.4-ui.png)
 
@@ -100,7 +100,7 @@ The release build runs the complete automated suite and a frozen-application lau
 
 ## Documentation
 
-- [Release notes](docs/RELEASE_1.2.4.md)
+- [Update notes](docs/RELEASE_1.2.4.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Web Sources guide](docs/WEB_SOURCES_README.md)
 - [Project structure](docs/PROJECT_STRUCTURE.md)

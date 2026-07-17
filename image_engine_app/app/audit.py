@@ -174,7 +174,8 @@ def _check_release_metadata(project_root: Path) -> tuple[bool, dict[str, Any]]:
             "EXE product version": f'StringStruct("ProductVersion", "{version}")' in version_info,
             "EXE file version": f'StringStruct("FileVersion", "{version}")' in version_info,
             "window title binding": "self.setWindowTitle(APP_TITLE)" in window_source,
-            "release heading": f"# {APP_NAME} {version} Release Notes" in release_notes,
+            "update notes version": f"{APP_NAME} {version}" in release_notes,
+            "no duplicate update heading": not release_notes.lstrip().startswith("# "),
         }
         mismatches.extend(label for label, present in expectations.items() if not present)
 

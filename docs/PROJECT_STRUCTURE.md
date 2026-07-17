@@ -39,7 +39,7 @@ This document describes the intended repository layout for Sprite Factory.
 ## Repository support files
 
 - `pyproject.toml` — repo-root Python project manifest for `image_engine_app`.
-- `docs/` — repository-level docs, screenshots, release notes, and support notes.
+- `docs/` — repository-level docs, screenshots, update notes, and support notes.
 - `pyinstaller_rthooks/` — runtime hooks used by frozen builds.
 - `spritefactory.spec` / `spritefactory_onefile.spec` — PyInstaller entry specs.
 - `run_app.ps1` — local development launcher.

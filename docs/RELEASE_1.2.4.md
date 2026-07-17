@@ -1,5 +1,3 @@
-# Sprite Factory 1.2.4 Release Notes
-
 Sprite Factory 1.2.4 makes linked-page discovery easier to understand and standardizes the public product identity across the app and release.
 
 ![Sprite Factory 1.2.4](sprite-factory-1.2.4-ui.png)
@@ -16,7 +14,7 @@ Sprite Factory 1.2.4 makes linked-page discovery easier to understand and standa
 
 - The app title, shell name, executable metadata, icon paths, README, screenshots, and release documentation now use **Sprite Factory**.
 - Obsolete icon aliases and superseded screenshots have been removed.
-- Release titles use **Sprite Factory [version] Release Notes** so the download page is clear and consistent.
+- GitHub displays one **Update Notes** title, followed directly by the update details without a repeated heading.
 
 ## Reliability
 

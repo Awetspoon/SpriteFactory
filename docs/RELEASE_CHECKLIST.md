@@ -19,13 +19,13 @@ Run these checks from the repository root.
 
 - [ ] Confirm `pyproject.toml`, `pyinstaller_version_info.py`, the window title, release notes, and screenshot use the same version
 - [ ] Confirm `image_engine_app/assets/icons/` contains the current ICO and PNG app icon assets
-- [ ] Confirm `docs/sprite-factory-pro-1.2.3-ui.png` shows the current real application
+- [ ] Confirm `docs/sprite-factory-1.2.4-ui.png` shows the current real application
 
 ## 4. Build Release
 
 - [ ] `powershell -ExecutionPolicy Bypass -File .\build_exe_onefile.ps1`
 - [ ] Confirm the script reports `Frozen-app smoke test: PASS`
-- [ ] Confirm `.local\release\SpriteFactory-v1.2.3-win64.exe` exists
+- [ ] Confirm `.local\release\SpriteFactory-v1.2.4-win64.exe` exists
 - [ ] Record the printed size and SHA-256 value
 
 ## 5. Manual Workflow Check
@@ -38,11 +38,11 @@ Run these checks from the repository root.
 
 ## 6. Clean Machine Check
 
-- [ ] Copy `.local\release\SpriteFactory-v1.2.3-win64.exe` to a second PC without Python
+- [ ] Copy `.local\release\SpriteFactory-v1.2.4-win64.exe` to a second PC without Python
 - [ ] Run the executable and repeat the manual workflow check
 
 ## 7. Publish
 
-- [ ] Upload `.local\release\SpriteFactory-v1.2.3-win64.exe` to GitHub Releases
-- [ ] Use `docs/RELEASE_1.2.3.md` for release notes
+- [ ] Upload `.local\release\SpriteFactory-v1.2.4-win64.exe` to GitHub Releases
+- [ ] Use `docs/RELEASE_1.2.4.md` for release notes
 - [ ] Keep `README.md` and `docs/TROUBLESHOOTING.md` current

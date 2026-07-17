@@ -1,4 +1,4 @@
-# Sprite Factory Pro 1.2.0
+# Sprite Factory 1.2.0 Release Notes
 
 ## Highlights
 

@@ -4,7 +4,7 @@ This folder holds support docs and visual assets used by the repository.
 
 ## Start Here
 
-- [Release 1.2.3 notes](RELEASE_1.2.3.md)
+- [Release Notes (1.2.4)](RELEASE_1.2.4.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Release checklist](RELEASE_CHECKLIST.md)
 - [Audit checklist](AUDIT_CHECKLIST.md)
@@ -14,6 +14,6 @@ This folder holds support docs and visual assets used by the repository.
 
 ## Visuals
 
-- `sprite-factory-pro-1.2.3-ui.png`
+- `sprite-factory-1.2.4-ui.png`
 
 `BUILD_LOCK.md` stays in the repository root because the in-app audit expects that exact path.

@@ -86,11 +86,11 @@ class WebSourcesPanel(QFrame):
         self._saved_more_btn = QToolButton(self)
 
         self._link_source = QComboBox(self)
-        self._find_links_btn = QPushButton("Find Pages", self)
-        self._scan_links_btn = QPushButton("Scan Selected", self)
+        self._find_links_btn = QPushButton("Find Linked Pages", self)
+        self._scan_links_btn = QPushButton("Scan Selected Pages", self)
         self._links_more_btn = QToolButton(self)
         self._links_search = QLineEdit(self)
-        self._links_count = QLabel("0 linked pages", self)
+        self._links_count = QLabel("No linked pages yet", self)
         self._links = QListWidget(self)
 
         self._results_search = QLineEdit(self)
@@ -223,8 +223,6 @@ class WebSourcesPanel(QFrame):
         self._linked_items = list(links)
         available = {link.url for link in self._linked_items}
         self._selected_link_urls.intersection_update(available)
-        if self._linked_items and not self._selected_link_urls:
-            self._selected_link_urls = set(available)
         self._refresh_link_list(capture_selection=False)
 
     def set_status(self, message: str) -> None:
@@ -358,18 +356,31 @@ class WebSourcesPanel(QFrame):
     def _build_links_section(self) -> QFrame:
         section, body = self._section_card(
             "3. Find Linked Pages",
-            "Optional. Choose an index or category page, find its page links, then scan only the ones you select.",
+            "Optional. Paste or choose an index page, find its links, filter the results, then scan the pages you select.",
         )
 
         source_row = QHBoxLayout()
-        source_label = QLabel("Discover from", self)
+        source_label = QLabel("Index or category page", self)
         source_label.setObjectName("shellHint")
         source_row.addWidget(source_label)
+        self._link_source.setEditable(True)
+        self._link_source.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._link_source.setPlaceholderText("Paste or choose a page URL")
+        if self._link_source.lineEdit() is not None:
+            self._link_source.lineEdit().setPlaceholderText("Paste or choose a page URL")
+        self._link_source.setToolTip(
+            "Paste an index or category page URL, or choose one from entered and saved pages."
+        )
+        self._link_source.currentIndexChanged.connect(
+            lambda _index: self._refresh_link_source_action()
+        )
+        self._link_source.editTextChanged.connect(
+            lambda _text: self._refresh_link_source_action()
+        )
         source_row.addWidget(self._link_source, 1)
         self._find_links_btn.clicked.connect(self._emit_discover_links)
         source_row.addWidget(self._find_links_btn)
-        self._scan_links_btn.clicked.connect(self._emit_linked_scan)
-        source_row.addWidget(self._scan_links_btn)
+        body.addLayout(source_row)
 
         links_menu = QMenu(self._links_more_btn)
         self._links_save_action = self._action(
@@ -396,17 +407,22 @@ class WebSourcesPanel(QFrame):
         links_menu.addAction(self._links_clear_results_action)
         links_menu.aboutToShow.connect(self._refresh_link_actions)
         self._set_menu(self._links_more_btn, links_menu)
-        source_row.addWidget(self._links_more_btn)
-        body.addLayout(source_row)
 
         filter_row = QHBoxLayout()
-        self._links_search.setPlaceholderText("Search linked pages by name or URL...")
+        filter_label = QLabel("Filter found pages", self)
+        filter_label.setObjectName("shellHint")
+        filter_row.addWidget(filter_label)
+        self._links_search.setPlaceholderText("Type a name or URL after finding pages")
         self._links_search.textChanged.connect(lambda _text: self._refresh_link_list())
         filter_row.addWidget(self._links_search, 1)
         filter_row.addWidget(self._links_count)
+        self._scan_links_btn.clicked.connect(self._emit_linked_scan)
+        filter_row.addWidget(self._scan_links_btn)
+        filter_row.addWidget(self._links_more_btn)
         body.addLayout(filter_row)
 
-        self._links.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self._links.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self._links.setToolTip("Click pages to select or unselect them. Use More to select every visible page.")
         self._links.setFixedHeight(SHELL_GEOMETRY.web_link_list_height)
         self._links.itemSelectionChanged.connect(self._capture_link_selection)
         body.addWidget(self._links)
@@ -771,8 +787,12 @@ class WebSourcesPanel(QFrame):
     def _refresh_link_sources(self) -> None:
         if not hasattr(self, "_link_source"):
             return
-        current_data = self._link_source.currentData()
-        current_url = str(current_data.get("url", "")) if isinstance(current_data, dict) else ""
+        current_source = self._current_link_source()
+        current_url = str(current_source.get("url", "")) if current_source is not None else ""
+        typed_text = ""
+        current_index = self._link_source.currentIndex()
+        if current_index < 0 or self._link_source.currentText() != self._link_source.itemText(current_index):
+            typed_text = self._link_source.currentText().strip()
         candidates: list[dict] = []
         seen: set[str] = set()
 
@@ -803,24 +823,44 @@ class WebSourcesPanel(QFrame):
 
         self._link_source.blockSignals(True)
         self._link_source.clear()
-        if not candidates:
-            self._link_source.addItem("Enter or save a page first", None)
-        else:
-            selected_index = 0
-            for index, candidate in enumerate(candidates):
-                self._link_source.addItem(candidate["label"], candidate)
-                self._link_source.setItemData(index, candidate["url"], Qt.ItemDataRole.ToolTipRole)
-                if candidate["url"] == current_url:
-                    selected_index = index
-            self._link_source.setCurrentIndex(selected_index)
+        selected_index = -1
+        for index, candidate in enumerate(candidates):
+            self._link_source.addItem(candidate["label"], candidate)
+            self._link_source.setItemData(index, candidate["url"], Qt.ItemDataRole.ToolTipRole)
+            if candidate["url"] == current_url:
+                selected_index = index
+        self._link_source.setCurrentIndex(selected_index)
+        if selected_index < 0:
+            self._link_source.setEditText(typed_text or current_url)
         self._link_source.blockSignals(False)
-        self._find_links_btn.setEnabled(bool(candidates))
+        self._refresh_link_source_action()
+
+    def _current_link_source(self) -> dict | None:
+        index = self._link_source.currentIndex()
+        text = self._link_source.currentText().strip()
+        if index >= 0 and text == self._link_source.itemText(index):
+            payload = self._link_source.itemData(index)
+            if isinstance(payload, dict) and payload.get("url"):
+                return dict(payload)
+
+        normalized = normalize_page_url(text)
+        return {"url": normalized} if normalized is not None else None
+
+    def _refresh_link_source_action(self) -> None:
+        source = self._current_link_source()
+        self._find_links_btn.setEnabled(source is not None)
+        self._find_links_btn.setToolTip(
+            f"Find pages linked from {source['url']}"
+            if source is not None
+            else "Paste or choose a valid http or https page URL first."
+        )
 
     def _emit_discover_links(self) -> None:
-        payload = self._link_source.currentData()
-        if not isinstance(payload, dict) or not payload.get("url"):
-            self.set_status("Choose a page in Discover from before finding linked pages.")
+        payload = self._current_link_source()
+        if payload is None:
+            self.set_status("Paste or choose a valid index or category page before finding linked pages.")
             return
+        self._links_search.clear()
         self.discover_links_requested.emit(
             WebLinkDiscoveryRequest(
                 url=str(payload["url"]),
@@ -849,7 +889,12 @@ class WebSourcesPanel(QFrame):
         self._links.blockSignals(False)
         selected_count = len(self._selected_link_urls)
         total = len(self._linked_items)
-        self._links_count.setText(f"{visible_count}/{total} shown; {selected_count} selected")
+        self._links_count.setText(
+            "No linked pages yet"
+            if total == 0
+            else f"{visible_count} of {total} shown; {selected_count} selected"
+        )
+        self._links_search.setEnabled(total > 0)
         self._scan_links_btn.setEnabled(selected_count > 0)
         self._refresh_link_actions()
 
@@ -867,8 +912,11 @@ class WebSourcesPanel(QFrame):
         self._selected_link_urls.difference_update(visible_urls)
         self._selected_link_urls.update(selected_urls)
         if hasattr(self, "_links_count"):
+            total = len(self._linked_items)
             self._links_count.setText(
-                f"{self._links.count()}/{len(self._linked_items)} shown; {len(self._selected_link_urls)} selected"
+                "No linked pages yet"
+                if total == 0
+                else f"{self._links.count()} of {total} shown; {len(self._selected_link_urls)} selected"
             )
             self._scan_links_btn.setEnabled(bool(self._selected_link_urls))
             self._refresh_link_actions()
@@ -907,14 +955,14 @@ class WebSourcesPanel(QFrame):
         if not selected:
             self.set_status("Select one or more linked pages before scanning.")
             return
-        source = self._link_source.currentData()
+        source = self._current_link_source()
         self.scan_requested.emit(
             WebScanRequest(
                 urls=tuple(link.url for link in selected),
                 smart=self.smart_options(),
                 origin=ScanOrigin.LINKED,
-                website_id=(str(source.get("website_id")) if isinstance(source, dict) and source.get("website_id") else None),
-                page_id=(str(source.get("page_id")) if isinstance(source, dict) and source.get("page_id") else None),
+                website_id=(str(source.get("website_id")) if source is not None and source.get("website_id") else None),
+                page_id=(str(source.get("page_id")) if source is not None and source.get("page_id") else None),
             )
         )
 

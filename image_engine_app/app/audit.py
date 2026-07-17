@@ -25,6 +25,7 @@ import time
 import tomllib
 from typing import Any
 
+from image_engine_app.app.identity import APP_NAME, APP_VERSION
 from image_engine_app.app.paths import ensure_app_paths
 
 
@@ -66,6 +67,7 @@ def _run_check(name: str, fn) -> CheckResult:
 
 def _check_structure(project_root: Path) -> tuple[bool, dict[str, Any]]:
     required = [
+        "image_engine_app/app/identity.py",
         "image_engine_app/app/main.py",
         "image_engine_app/engine",
         "image_engine_app/ui",
@@ -133,7 +135,7 @@ def _check_packaging_files(project_root: Path) -> tuple[bool, dict[str, Any]]:
         "onefile_spec": project_root / "spritefactory_onefile.spec",
         "onefile_build_script": project_root / "build_exe_onefile.ps1",
         "runtime_hook_dir": project_root / "pyinstaller_rthooks",
-        "icon": project_root / "image_engine_app" / "assets" / "icons" / "spritefactory_pro.ico",
+        "icon": project_root / "image_engine_app" / "assets" / "icons" / "spritefactory.ico",
         "shell_chevron": project_root / "image_engine_app" / "ui" / "common" / "chevron_down.svg",
         "version_info": project_root / "pyinstaller_version_info.py",
         "release_notes": project_root / "docs" / f"RELEASE_{version}.md",
@@ -145,7 +147,7 @@ def _check_packaging_files(project_root: Path) -> tuple[bool, dict[str, Any]]:
 
 def _check_release_metadata(project_root: Path) -> tuple[bool, dict[str, Any]]:
     version = _read_project_version(project_root)
-    expected_screenshot = f"docs/sprite-factory-pro-{version}-ui.png"
+    expected_screenshot = f"docs/sprite-factory-{version}-ui.png"
     expected_release_notes = f"docs/RELEASE_{version}.md"
     sources = {
         "readme": project_root / "README.md",
@@ -165,12 +167,14 @@ def _check_release_metadata(project_root: Path) -> tuple[bool, dict[str, Any]]:
         window_source = sources["window"].read_text(encoding="utf-8")
         release_notes = sources["release_notes"].read_text(encoding="utf-8")
         expectations = {
+            "identity version": APP_VERSION == version,
+            "README product name": f"# {APP_NAME}" in readme,
             "README release link": expected_release_notes in readme,
             "README screenshot": expected_screenshot in readme,
             "EXE product version": f'StringStruct("ProductVersion", "{version}")' in version_info,
             "EXE file version": f'StringStruct("FileVersion", "{version}")' in version_info,
-            "window title": f"Sprite Factory Pro v{version}" in window_source,
-            "release heading": f"Sprite Factory Pro {version}" in release_notes,
+            "window title binding": "self.setWindowTitle(APP_TITLE)" in window_source,
+            "release heading": f"# {APP_NAME} {version} Release Notes" in release_notes,
         }
         mismatches.extend(label for label, present in expectations.items() if not present)
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.4 - 2026-07-17
+- Reordered Find Linked Pages into a clear choose-or-paste, discover, filter, select, and scan workflow.
+- Allowed direct index or category URLs in the discovery source field instead of mistaking them for result-filter text.
+- Removed automatic page selection after discovery so scans process only the pages the user explicitly selects.
+- Standardized the public application, icon, documentation, executable, and release identity as Sprite Factory.
+- Updated Helper guidance and added regression coverage for direct discovery URLs and explicit linked-page selection.
+
 ## 1.2.3 - 2026-07-17
 - Rebuilt Saved Pages as a persistent Saved Library where each website contains its saved child pages and whole websites or individual pages can be scanned together.
 - Added Save Selected to Library for discovered links, preserving useful page names, grouping by website host, and preventing duplicate bookmarks.
@@ -40,11 +47,11 @@
 - Added regression tests for HTTP 403 scan retry + friendly error mapping.
 - Rewrote README for clearer product overview, workflow guidance, and release usage.
 ## 1.1.1 - 2026-03-12
-- Replaced README/UI screenshot with a true full-size capture of the running **Sprite Factory Pro** app window.
+- Replaced README/UI screenshot with a true full-size capture of the running **Sprite Factory** app window.
 - Synced repository docs to reflect the current branded UI state.
 
 ## 1.1.0 - 2026-03-12
-- Rebranded UI and runtime identity to **Sprite Factory Pro**.
+- Rebranded UI and runtime identity to **Sprite Factory**.
 - Moved `Encoding Window` access from top toolbar into `Settings > Export Encoding` and kept full encoding controls.
 - Rebuilt Transparency controls to explicitly choose white background behavior:
   - Keep white background
@@ -60,7 +67,7 @@
   - strips legacy built-in entries from saved settings
   - keeps user-managed source list clean
 - Reworked top toolbar session/import actions into cleaner dropdown menus.
-- Added/updated app icon assets for Clean Pro branding.
+- Added and updated the application icon assets.
 
 ## 1.0.4 - 2026-03-11
 - Repository and release documentation polish.

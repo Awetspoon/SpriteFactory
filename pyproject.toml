@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "image-engine-app"
-version = "1.2.3"
+version = "1.2.4"
 description = "Sprite Factory desktop image engine"
 readme = "README.md"
 requires-python = ">=3.11"

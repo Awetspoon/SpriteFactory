@@ -33,9 +33,9 @@ The page scanner, linked-page discovery, saved-page registry, connection check, 
 ## 3. Find Linked Pages
 
 - Use this optional section for an index, category, or directory page.
-- **Discover from** explicitly shows which entered or saved page will be inspected.
-- **Find Pages** discovers page links but does not scan their files.
-- Search and select the discovered pages, then use **Scan Selected**.
+- Paste a URL directly into **Index or category page**, or choose an entered or saved page from its list.
+- **Find Linked Pages** discovers page links but does not scan or download their files.
+- **Filter found pages** becomes available after discovery. Click pages to select them, then use **Scan Selected Pages**.
 - **More** contains Save Selected to Library plus selection and clear actions for linked pages.
 
 ## 4. Found Files

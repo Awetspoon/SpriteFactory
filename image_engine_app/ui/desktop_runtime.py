@@ -7,13 +7,14 @@ from pathlib import Path
 import sys
 
 from image_engine_app.app.bootstrap import ApplicationContext
+from image_engine_app.app.identity import APP_NAME
 from image_engine_app.app.paths import AppPaths
 from image_engine_app.app.settings_store import load_user_settings, save_user_settings
 from image_engine_app.ui.common.shell_theme import build_app_stylesheet
 from image_engine_app.ui.common.shell_tokens import SHELL_GEOMETRY
 
 
-APP_ICON_NAMES = ("spritefactory_pro.ico", "spritefactory_pro.png")
+APP_ICON_NAMES = ("spritefactory.ico", "spritefactory.png")
 
 
 def resolve_runtime_icon_candidates() -> list[Path]:
@@ -129,8 +130,8 @@ def run_desktop_application(
     app = QApplication([sys.argv[0], *qt_args])
     _apply_native_style(app, QStyleFactory)
     app.setStyleSheet(build_app_stylesheet())
-    app.setApplicationName("Sprite Factory Pro")
-    app.setOrganizationName("Sprite Factory Pro")
+    app.setApplicationName(APP_NAME)
+    app.setOrganizationName(APP_NAME)
 
     runtime_icon = None
     runtime_icon_path = None

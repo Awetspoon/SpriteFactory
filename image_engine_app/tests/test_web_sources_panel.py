@@ -304,6 +304,39 @@ class WebSourcesPanelTests(unittest.TestCase):
         finally:
             self._close(app, owns_app, panel)
 
+    def test_discovery_source_accepts_a_direct_page_url(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        requests: list[object] = []
+        panel.discover_links_requested.connect(requests.append)
+        try:
+            panel._link_source.setCurrentIndex(-1)
+            panel._link_source.setEditText("https://example.com/sprite-index")
+
+            self.assertTrue(panel._find_links_btn.isEnabled())
+            panel._emit_discover_links()
+
+            self.assertEqual(1, len(requests))
+            self.assertEqual("https://example.com/sprite-index", requests[0].url)
+            self.assertIsNone(requests[0].website_id)
+            self.assertIsNone(requests[0].page_id)
+        finally:
+            self._close(app, owns_app, panel)
+
+    def test_linked_pages_require_an_explicit_selection_before_scan(self) -> None:
+        app, owns_app, panel = self._setup_panel()
+        try:
+            self.assertEqual("No linked pages yet", panel._links_count.text())
+            self.assertFalse(panel._links_search.isEnabled())
+            panel.set_index_links(
+                (WebIndexLink("Generation 1", "https://example.com/gen-1"),)
+            )
+
+            self.assertTrue(panel._links_search.isEnabled())
+            self.assertFalse(panel._scan_links_btn.isEnabled())
+            self.assertIn("0 selected", panel._links_count.text())
+        finally:
+            self._close(app, owns_app, panel)
+
     def test_linked_page_filter_and_selection_emit_unified_scan(self) -> None:
         app, owns_app, panel = self._setup_panel()
         requests: list[object] = []

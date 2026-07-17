@@ -1,4 +1,4 @@
-# Troubleshooting Sprite Factory Pro
+# Troubleshooting Sprite Factory
 
 ## Windows SmartScreen Appears
 

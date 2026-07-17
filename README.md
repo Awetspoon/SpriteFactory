@@ -1,19 +1,19 @@
-# Sprite Factory Pro
+# Sprite Factory
 
 [![Latest release](https://img.shields.io/github/v/release/Awetspoon/SpriteFactory?label=download&style=flat-square)](https://github.com/Awetspoon/SpriteFactory/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0b7a75?style=flat-square)](https://github.com/Awetspoon/SpriteFactory/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-465563?style=flat-square)](LICENSE)
 
-Sprite Factory Pro is a focused Windows editor for sprites, animated GIFs, icons, photos, and other image assets. Import one file or a whole collection, compare the source with the edited result, make precise adjustments, and export individual files or a complete batch.
+Sprite Factory is a focused Windows editor for sprites, animated GIFs, icons, photos, and other image assets. Import one file or a whole collection, compare the source with the edited result, make precise adjustments, and export individual files or a complete batch.
 
-[**Download Sprite Factory Pro for Windows**](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [What's new in 1.2.3](docs/RELEASE_1.2.3.md) | [Help and troubleshooting](docs/TROUBLESHOOTING.md)
+[**Download Sprite Factory for Windows**](https://github.com/Awetspoon/SpriteFactory/releases/latest) | [Release Notes](docs/RELEASE_1.2.4.md) | [Help and troubleshooting](docs/TROUBLESHOOTING.md)
 
-![Sprite Factory Pro editor](docs/sprite-factory-pro-1.2.3-ui.png)
+![Sprite Factory editor](docs/sprite-factory-1.2.4-ui.png)
 
 ## Download And Start
 
 1. Open the [latest GitHub release](https://github.com/Awetspoon/SpriteFactory/releases/latest).
-2. Under **Assets**, download `SpriteFactory-v1.2.3-win64.exe`.
+2. Under **Assets**, download `SpriteFactory-v1.2.4-win64.exe`.
 3. Open the downloaded file. No installer or Python setup is required.
 4. Use **File > Add Files** or **File > Add Folder** to begin.
 
@@ -96,11 +96,11 @@ Run the repository health audit:
 powershell -ExecutionPolicy Bypass -File .\RUN_AUDIT.ps1
 ```
 
-The release build runs the complete automated suite and a frozen-application launch test before producing `.local\release\SpriteFactory-v1.2.3-win64.exe`. Generated builds, runtime data, caches, and local settings are ignored by Git.
+The release build runs the complete automated suite and a frozen-application launch test before producing `.local\release\SpriteFactory-v1.2.4-win64.exe`. Generated builds, runtime data, caches, and local settings are ignored by Git.
 
 ## Documentation
 
-- [Release notes](docs/RELEASE_1.2.3.md)
+- [Release notes](docs/RELEASE_1.2.4.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Web Sources guide](docs/WEB_SOURCES_README.md)
 - [Project structure](docs/PROJECT_STRUCTURE.md)
@@ -108,4 +108,4 @@ The release build runs the complete automated suite and a frozen-application lau
 
 ## License
 
-Sprite Factory Pro is available under the [MIT License](LICENSE).
+Sprite Factory is available under the [MIT License](LICENSE).

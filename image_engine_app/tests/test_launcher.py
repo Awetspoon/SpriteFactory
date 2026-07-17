@@ -10,10 +10,16 @@ from unittest.mock import patch
 
 from image_engine_app import launcher
 from image_engine_app.app.bootstrap import parse_startup_arguments
+from image_engine_app.app.identity import APP_NAME, APP_TITLE, APP_VERSION
 from image_engine_app.ui.desktop_runtime import resolve_runtime_icon_candidates
 
 
 class LauncherTests(unittest.TestCase):
+    def test_public_identity_is_sprite_factory(self) -> None:
+        self.assertEqual("Sprite Factory", APP_NAME)
+        self.assertEqual("1.2.4", APP_VERSION)
+        self.assertEqual("Sprite Factory v1.2.4", APP_TITLE)
+
     def test_app_startup_arguments_do_not_leak_into_qt_arguments(self) -> None:
         startup = parse_startup_arguments(["--app-data-dir", ".\\runtime", "-platform", "offscreen"])
 
@@ -57,11 +63,11 @@ class LauncherTests(unittest.TestCase):
     def test_runtime_icon_prefers_multi_size_ico_before_png(self) -> None:
         names = [path.name for path in resolve_runtime_icon_candidates()]
 
-        self.assertIn("spritefactory_pro.ico", names)
-        self.assertIn("spritefactory_pro.png", names)
-        self.assertNotIn("spritefactory.ico", names)
-        self.assertNotIn("spritefactory.png", names)
-        self.assertLess(names.index("spritefactory_pro.ico"), names.index("spritefactory_pro.png"))
+        self.assertIn("spritefactory.ico", names)
+        self.assertIn("spritefactory.png", names)
+        self.assertNotIn("spritefactory_pro.ico", names)
+        self.assertNotIn("spritefactory_pro.png", names)
+        self.assertLess(names.index("spritefactory.ico"), names.index("spritefactory.png"))
 
 
 if __name__ == "__main__":

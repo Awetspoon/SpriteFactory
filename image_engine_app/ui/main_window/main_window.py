@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from image_engine_app.app.identity import APP_NAME, APP_TITLE
 from image_engine_app.app.settings_store import SessionStore
 from image_engine_app.app.ui_controller import ImageEngineUIController
 from image_engine_app.engine.models import AssetRecord, SessionState
@@ -64,7 +65,7 @@ class ImageEngineMainWindow(QMainWindow):
         super().__init__(parent)
         self.setObjectName("imageEngineMainWindow")
         self._configure_native_window_chrome()
-        self.setWindowTitle("Sprite Factory Pro v1.2.3")
+        self.setWindowTitle(APP_TITLE)
         self.resize(
             SHELL_GEOMETRY.window_default_width,
             SHELL_GEOMETRY.window_default_height,
@@ -298,7 +299,7 @@ class ImageEngineMainWindow(QMainWindow):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(0)
 
-        title = QLabel("Sprite Factory Pro", text_wrap)
+        title = QLabel(APP_NAME, text_wrap)
         title.setObjectName("toolbarBrandTitle")
         subtitle = QLabel("Sprite editing and batch export", text_wrap)
         subtitle.setObjectName("toolbarBrandSubtitle")
@@ -587,7 +588,7 @@ class ImageEngineMainWindow(QMainWindow):
         layout.addWidget(title)
 
         subtitle = QLabel(
-            "Current guide for the redesigned Sprite Factory Pro workspace.",
+            f"Current guide for the redesigned {APP_NAME} workspace.",
             page,
         )
         subtitle.setWordWrap(True)
@@ -674,10 +675,11 @@ class ImageEngineMainWindow(QMainWindow):
             "<h4>3. Find Linked Pages</h4>"
             "<ul>"
             "<li>This optional section is for index, category, or directory pages that link to many separate sprite pages.</li>"
-            "<li>Use <b>Discover from</b> to choose exactly which entered or saved page will be inspected, then click <b>Find Pages</b>.</li>"
-            "<li>Search the discovered page list, select the pages you need, then click <b>Scan Selected</b>. Finding pages does not download or scan files by itself.</li>"
+            "<li>Paste a full URL into <b>Index or category page</b>, or choose one of the entered or saved pages from its list.</li>"
+            "<li>Click <b>Find Linked Pages</b>. This only discovers pages linked from that source; it does not scan or download image files.</li>"
+            "<li>Use <b>Filter found pages</b> after discovery, click pages to select or unselect them, then click <b>Scan Selected Pages</b>.</li>"
             "<li>Use <b>More &gt; Save Selected to Library</b> to keep selected discovered pages. Their discovered names are retained and they are grouped under the matching website.</li>"
-            "<li><b>More</b> contains linked-page actions only: save selected pages, select visible pages, clear page selection, and clear linked pages.</li>"
+            "<li><b>More</b> applies only to the discovered list: save selected pages, select visible pages, clear page selection, or clear linked pages.</li>"
             "<li>Any scan above 100 pages asks for confirmation and scans only the first 100, reducing the chance of a freeze or website rate limit.</li>"
             "</ul>"
             "<h4>4. Found Files and Download</h4>"
